@@ -92,17 +92,25 @@ async function createPageAndTemplate(admin: any, shopGid: string): Promise<void>
   const assetKey = `templates/page.${TEMPLATE_SUFFIX}.json`;
 
   const assetCheckRes = await admin.graphql(`
-    query GetAsset($themeId: ID!, $key: String!) {
-      theme(id: $themeId) {
-        file(filename: $key) {
+  query GetThemeFile($themeId: ID!, $filename: String!) {
+    theme(id: $themeId) {
+      files(filenames: [$filename], first: 1) {
+        nodes {
           filename
         }
       }
     }
-  `, { variables: { themeId, key: assetKey } });
+  }
+`, {
+  variables: {
+    themeId,
+    filename: assetKey,
+  },
+});
 
   const assetCheckData = await assetCheckRes.json();
-  const existingAsset = assetCheckData.data?.theme?.file;
+  const existingAsset =
+  assetCheckData.data?.theme?.files?.nodes?.[0];
 
   if (!existingAsset) {
     // 3. Create the template asset
