@@ -1,0 +1,93 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model LoyaltyCustomer {
+  id              String   @id @default(cuid())
+  shop            String
+  shopifyCustomerId String
+  email           String?
+  firstName       String?
+  lastName        String?
+  points          Int      @default(0)
+  lifetimePoints  Int      @default(0)
+  tier            String   @default("bronze")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    PointTransaction[]
+
+  @@unique([shop, shopifyCustomerId])
+  @@index([shop])
+}
+
+model PointTransaction {
+  id          String   @id @default(cuid())
+  shop        String
+  customerId  String
+  type        String   // "earn" | "redeem" | "expire" | "adjust"
+  points      Int
+  status  String @default("active") // "pending" | "active" | "deducted"
+  orderId     String?
+  orderName   String?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  customer    LoyaltyCustomer @relation(fields: [customerId], references: [id])
+
+  @@index([shop, customerId])
+}
+
+model TierConfig {
+  id        String   @id @default(cuid())
+  shop      String   @unique
+  bronze    Int      @default(0)
+  silver    Int      @default(500)
+  gold      Int      @default(2000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LoyaltySettings {
+  id                String   @id @default(cuid())
+  shop              String   @unique
+  pointsPerCurrency Float    @default(10)   // pts per $1
+  orderAmountType   String   @default("subtotal") // "subtotal" | "total"
+  bronzeMultiplier  Float    @default(1.0)
+  silverMultiplier  Float    @default(1.25)
+  goldMultiplier    Float    @default(1.5)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
