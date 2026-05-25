@@ -1,5 +1,4 @@
 // app/services/loyaltyPageSetup.server.ts
-// Runs on afterAuth — creates the Loyalty Rewards page + template + writes app_url metafield
 
 const BLOCK_TYPE = `shopify://apps/loyalty-program/blocks/loyalty-widget/d352f77e-1a84-6673-24f2-305e8d76a5518030e602`;
 const TEMPLATE_SUFFIX = "loyalty";
@@ -8,33 +7,23 @@ const APP_URL = process.env.SHOPIFY_APP_URL || "";
 
 function buildTemplateJson(): string {
   const blockId = "loyalty-widget-main";
-  return JSON.stringify(
-    {
-      sections: {
-        [blockId]: {
-          type: BLOCK_TYPE,
-          settings: {},
-        },
+  return JSON.stringify({
+    sections: {
+      [blockId]: {
+        type: BLOCK_TYPE,
+        settings: {},
       },
-      order: [blockId],
     },
-    null,
-    2
-  );
+    order: [blockId],
+  }, null, 2);
 }
 
 export async function setupLoyaltyPage(admin: any): Promise<void> {
   try {
-    await writeAppUrlMetafield(admin);
+    const shopGid = await getShopGid(admin);
 
-    const themeId = await getActiveThemeId(admin);
-    if (!themeId) {
-      console.error("[loyaltyPageSetup] Could not find active theme");
-      return;
-    }
-
-    await createPageTemplate(admin, themeId);
-    await createLoyaltyPage(admin);
+    await writeAppUrlMetafield(admin, shopGid);
+    await createPageAndTemplate(admin, shopGid);
 
     console.log("[loyaltyPageSetup] ✅ Setup complete");
   } catch (err) {
@@ -42,13 +31,11 @@ export async function setupLoyaltyPage(admin: any): Promise<void> {
   }
 }
 
-async function writeAppUrlMetafield(admin: any): Promise<void> {
-  const shopGid = await getShopGid(admin);
-
-  const response = await admin.graphql(`
-    mutation SetAppUrlMetafield($metafields: [MetafieldsSetInput!]!) {
+// ── Write loyalty.app_url on Shop ────────────────────────────────────────────
+async function writeAppUrlMetafield(admin: any, shopGid: string): Promise<void> {
+  const res = await admin.graphql(`
+    mutation SetAppUrl($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
-        metafields { id key namespace value }
         userErrors { field message }
       }
     }
@@ -64,88 +51,137 @@ async function writeAppUrlMetafield(admin: any): Promise<void> {
     },
   });
 
-  const data = await response.json();
+  const data = await res.json();
   const errors = data.data?.metafieldsSet?.userErrors ?? [];
   if (errors.length) {
-    console.error("[loyaltyPageSetup] Metafield errors:", errors);
+    console.error("[loyaltyPageSetup] app_url metafield errors:", errors);
   } else {
     console.log(`[loyaltyPageSetup] Wrote loyalty.app_url = ${APP_URL}`);
   }
 }
 
+// ── Get Shop GID ─────────────────────────────────────────────────────────────
 async function getShopGid(admin: any): Promise<string> {
-  const response = await admin.graphql(`query { shop { id } }`);
-  const data = await response.json();
+  const res = await admin.graphql(`query { shop { id } }`);
+  const data = await res.json();
   return data.data.shop.id;
 }
 
-async function getActiveThemeId(admin: any): Promise<string | null> {
-  const response = await admin.rest.get({ path: "themes" });
-  const themes: any[] = response.data?.themes ?? [];
-  const active = themes.find((t: any) => t.role === "main");
-  return active ? String(active.id) : null;
-}
+// ── Create page + theme template via GraphQL ─────────────────────────────────
+async function createPageAndTemplate(admin: any, shopGid: string): Promise<void> {
+  // 1. Get active theme ID
+  const themeRes = await admin.graphql(`
+    query {
+      themes(first: 10) {
+        nodes { id role }
+      }
+    }
+  `);
+  const themeData = await themeRes.json();
+  const themes = themeData.data?.themes?.nodes ?? [];
+  const activeTheme = themes.find((t: any) => t.role === "MAIN");
 
-async function createPageTemplate(admin: any, themeId: string): Promise<void> {
-  const assetKey = `templates/page.${TEMPLATE_SUFFIX}.json`;
-
-  try {
-    await admin.rest.get({
-      path: `themes/${themeId}/assets`,
-      query: { "asset[key]": assetKey },
-    });
-    console.log("[loyaltyPageSetup] Template asset already exists, skipping");
+  if (!activeTheme) {
+    console.error("[loyaltyPageSetup] No active theme found");
     return;
-  } catch {
-    // doesn't exist — create it
   }
 
-  await admin.rest.put({
-    path: `themes/${themeId}/assets`,
-    data: {
-      asset: {
+  const themeId = activeTheme.id; // GID format: gid://shopify/OnlineStoreTheme/123
+
+  // 2. Check if template asset already exists
+  const assetKey = `templates/page.${TEMPLATE_SUFFIX}.json`;
+
+  const assetCheckRes = await admin.graphql(`
+    query GetAsset($themeId: ID!, $key: String!) {
+      theme(id: $themeId) {
+        file(filename: $key) {
+          filename
+        }
+      }
+    }
+  `, { variables: { themeId, key: assetKey } });
+
+  const assetCheckData = await assetCheckRes.json();
+  const existingAsset = assetCheckData.data?.theme?.file;
+
+  if (!existingAsset) {
+    // 3. Create the template asset
+    const createAssetRes = await admin.graphql(`
+      mutation CreateThemeAsset($themeId: ID!, $key: String!, $value: String!) {
+        themeFilesUpsert(themeId: $themeId, files: [{ filename: $key, body: { type: TEXT, value: $value } }]) {
+          upsertedThemeFiles { filename }
+          userErrors { filename message }
+        }
+      }
+    `, {
+      variables: {
+        themeId,
         key: assetKey,
         value: buildTemplateJson(),
       },
-    },
-  });
+    });
 
-  console.log(`[loyaltyPageSetup] Created theme asset: ${assetKey}`);
-}
+    const assetData = await createAssetRes.json();
+    const assetErrors = assetData.data?.themeFilesUpsert?.userErrors ?? [];
+    if (assetErrors.length) {
+      console.error("[loyaltyPageSetup] Theme asset errors:", assetErrors);
+    } else {
+      console.log(`[loyaltyPageSetup] Created theme asset: ${assetKey}`);
+    }
+  } else {
+    console.log("[loyaltyPageSetup] Template asset already exists, skipping");
+  }
 
-async function createLoyaltyPage(admin: any): Promise<void> {
-  const listResponse = await admin.rest.get({
-    path: "pages",
-    query: { title: PAGE_TITLE },
-  });
+  // 4. Check if the Loyalty Rewards page already exists
+  const pageCheckRes = await admin.graphql(`
+    query FindLoyaltyPage {
+      pages(first: 5, query: "title:'Loyalty Rewards'") {
+        nodes { id title templateSuffix }
+      }
+    }
+  `);
 
-  const pages: any[] = listResponse.data?.pages ?? [];
-  const existing = pages.find((p: any) => p.title === PAGE_TITLE);
+  const pageCheckData = await pageCheckRes.json();
+  const pages = pageCheckData.data?.pages?.nodes ?? [];
+  const existingPage = pages.find((p: any) => p.title === PAGE_TITLE);
 
-  if (existing) {
-    if (existing.template_suffix !== TEMPLATE_SUFFIX) {
-      await admin.rest.put({
-        path: `pages/${existing.id}`,
-        data: { page: { id: existing.id, template_suffix: TEMPLATE_SUFFIX } },
-      });
-      console.log("[loyaltyPageSetup] Updated existing page template_suffix");
+  if (existingPage) {
+    if (existingPage.templateSuffix !== TEMPLATE_SUFFIX) {
+      await admin.graphql(`
+        mutation UpdatePage($id: ID!, $suffix: String!) {
+          pageUpdate(id: $id, page: { templateSuffix: $suffix }) {
+            userErrors { field message }
+          }
+        }
+      `, { variables: { id: existingPage.id, suffix: TEMPLATE_SUFFIX } });
+      console.log("[loyaltyPageSetup] Updated page templateSuffix");
     } else {
       console.log("[loyaltyPageSetup] Page already correct, skipping");
     }
     return;
   }
 
-  await admin.rest.post({
-    path: "pages",
-    data: {
-      page: {
-        title: PAGE_TITLE,
-        body_html: "",
-        template_suffix: TEMPLATE_SUFFIX,
-        published: true,
-      },
+  // 5. Create the page
+  const createPageRes = await admin.graphql(`
+    mutation CreatePage($title: String!, $suffix: String!) {
+      pageCreate(page: { title: $title, templateSuffix: $suffix, isPublished: true }) {
+        page { id title handle }
+        userErrors { field message }
+      }
+    }
+  `, {
+    variables: {
+      title: PAGE_TITLE,
+      suffix: TEMPLATE_SUFFIX,
     },
   });
 
-  console.log(`[loyaltyPageSetup] Created page: "${PAGE_TITLE}"`);
+  const pageData = await createPageRes.json();
+  const pageErrors = pageData.data?.pageCreate?.userErrors ?? [];
+  if (pageErrors.length) {
+    console.error("[loyaltyPageSetup] Page create errors:", pageErrors);
+  } else {
+    const handle = pageData.data?.pageCreate?.page?.handle;
+    console.log(`[loyaltyPageSetup] Created page: "${PAGE_TITLE}" → /pages/${handle}`);
+  }
 }
