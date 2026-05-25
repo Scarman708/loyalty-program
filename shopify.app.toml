@@ -2,7 +2,7 @@
 
 client_id = "ce06334c3fadccebfecaae4cee03d563"
 name = "loyalty program "
-application_url = "https://example.com"
+application_url = "https://loyalty-program-orjg.onrender.com"
 embedded = true
 
 [build]
@@ -17,4 +17,4 @@ api_version = "2026-07"
 scopes = "write_customers,read_customers,write_orders,read_orders,read_products,write_products"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://loyalty-program-orjg.onrender.com/api/auth" ]
