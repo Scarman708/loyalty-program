@@ -34,13 +34,18 @@
         font-family: 'DM Sans', sans-serif;
         --lw-radius: 16px;
         --lw-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        --lw-accent: #d4a017;
+        --lw-bg: #0d0d0d;
+        --lw-text: #ffffff;
+        --lw-btn-bg: #d4a017;
+        --lw-btn-text: #0d0d0d;
         max-width: 480px;
         margin: 0 auto;
       }
 
       /* ── Signup Card ── */
       .lw-signup {
-        background: #0d0d0d;
+        background: var(--lw-bg);
         border-radius: var(--lw-radius);
         padding: 36px 32px;
         color: #fff;
@@ -118,10 +123,10 @@
         text-align: center;
       }
       .lw-btn-primary {
-        background: #d4a017;
-        color: #0d0d0d;
+        background: var(--lw-btn-bg);
+        color: var(--lw-btn-text);
       }
-      .lw-btn-primary:hover { background: #e8b420; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(212,160,23,0.35); }
+      .lw-btn-primary:hover { background: var(--lw-btn-bg); opacity: 0.88; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
       .lw-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
       .lw-signup-note {
         margin-top: 12px;
@@ -631,12 +636,35 @@
     });
   }
 
+  // ── Apply style from API ──────────────────────────────────────────────────
+  async function applyStyle() {
+    if (!APP_URL || !SHOP) return;
+    try {
+      const res = await fetch(`${APP_URL}/api/loyalty-style?shop=${encodeURIComponent(SHOP)}`);
+      if (!res.ok) return;
+      const style = await res.json();
+
+      const root = document.getElementById("loyalty-widget-root");
+      if (!root) return;
+
+      if (style.accentColor)     root.style.setProperty("--lw-accent",      style.accentColor);
+      if (style.bgColor)         root.style.setProperty("--lw-bg",           style.bgColor);
+      if (style.textColor)       root.style.setProperty("--lw-text",         style.textColor);
+      if (style.buttonColor)     root.style.setProperty("--lw-btn-bg",       style.buttonColor);
+      if (style.buttonTextColor) root.style.setProperty("--lw-btn-text",     style.buttonTextColor);
+      if (style.borderRadius != null) root.style.setProperty("--lw-radius",  `${style.borderRadius}px`);
+    } catch (e) {
+      // non-fatal — widget uses default styles
+    }
+  }
+
   // ── Main init ─────────────────────────────────────────────────────────────
   async function init() {
     const container = document.getElementById("loyalty-widget-root");
     if (!container) return;
 
     injectStyles();
+    applyStyle(); // async, non-blocking
 
     // Not logged in
     if (!CUSTOMER_ID) {
@@ -657,7 +685,7 @@
       const data = await res.json();
 
       if (!data.enrolled) {
-        renderSignup(container, () => init()); // re-init after signup
+        renderSignup(container, () => init());
       } else {
         renderDashboard(container, data);
       }

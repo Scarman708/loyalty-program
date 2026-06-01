@@ -89,5 +89,11 @@ model LoyaltySettings {
   goldMultiplier    Float    @default(1.5)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  accentColor     String @default("#d4a017")
+bgColor         String @default("#0d0d0d")
+textColor       String @default("#ffffff")
+buttonColor     String @default("#d4a017")
+buttonTextColor String @default("#0d0d0d")
+borderRadius    Int    @default(16)
 }
 

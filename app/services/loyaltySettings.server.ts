@@ -3,11 +3,18 @@ import db from "../db.server";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface LoyaltySettingsData {
-  pointsPerCurrency: number;   // e.g. 10 = 10 pts per $1
+  pointsPerCurrency: number;
   orderAmountType:   "subtotal" | "total";
-  bronzeMultiplier:  number;   // 1.0
-  silverMultiplier:  number;   // 1.25
-  goldMultiplier:    number;   // 1.5
+  bronzeMultiplier:  number;
+  silverMultiplier:  number;
+  goldMultiplier:    number;
+  // Style
+  accentColor:       string;
+  bgColor:           string;
+  textColor:         string;
+  buttonColor:       string;
+  buttonTextColor:   string;
+  borderRadius:      number;
 }
 
 const DEFAULTS: LoyaltySettingsData = {
@@ -16,6 +23,12 @@ const DEFAULTS: LoyaltySettingsData = {
   bronzeMultiplier:  1.0,
   silverMultiplier:  1.25,
   goldMultiplier:    1.5,
+  accentColor:       "#d4a017",
+  bgColor:           "#0d0d0d",
+  textColor:         "#ffffff",
+  buttonColor:       "#d4a017",
+  buttonTextColor:   "#0d0d0d",
+  borderRadius:      16,
 };
 
 // ── Read ──────────────────────────────────────────────────────────────────────
@@ -29,9 +42,14 @@ export async function getLoyaltySettings(shop: string): Promise<LoyaltySettingsD
       bronzeMultiplier:  row.bronzeMultiplier,
       silverMultiplier:  row.silverMultiplier,
       goldMultiplier:    row.goldMultiplier,
+      accentColor:       (row as any).accentColor     ?? DEFAULTS.accentColor,
+      bgColor:           (row as any).bgColor         ?? DEFAULTS.bgColor,
+      textColor:         (row as any).textColor       ?? DEFAULTS.textColor,
+      buttonColor:       (row as any).buttonColor     ?? DEFAULTS.buttonColor,
+      buttonTextColor:   (row as any).buttonTextColor ?? DEFAULTS.buttonTextColor,
+      borderRadius:      (row as any).borderRadius    ?? DEFAULTS.borderRadius,
     };
   }
-  // Auto-create with defaults
   await db.loyaltySettings.create({ data: { shop, ...DEFAULTS } });
   return DEFAULTS;
 }
@@ -49,10 +67,10 @@ export async function saveLoyaltySettings(
   });
 }
 
-// ── Calculate points for an order ─────────────────────────────────────────────
+// ── Calculate points ──────────────────────────────────────────────────────────
 
 export function calculatePoints(
-  orderAmount: number,         // in store currency (dollars, etc.)
+  orderAmount: number,
   customerTier: string,
   settings: LoyaltySettingsData,
 ): number {
@@ -60,7 +78,5 @@ export function calculatePoints(
     customerTier === "gold"   ? settings.goldMultiplier :
     customerTier === "silver" ? settings.silverMultiplier :
                                 settings.bronzeMultiplier;
-
-  const raw = orderAmount * settings.pointsPerCurrency * multiplier;
-  return Math.floor(raw); // always whole points, round down
+  return Math.floor(orderAmount * settings.pointsPerCurrency * multiplier);
 }
