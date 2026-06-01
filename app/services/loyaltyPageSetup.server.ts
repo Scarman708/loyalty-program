@@ -21,7 +21,7 @@ function buildPageBody(): string {
   window.__LOYALTY_CUSTOMER_ID__ = null;
   {% endif %}
 </script>
-<script src="${APP_URL}/extensions/loyalty-ui/assets/loyalty-widget.js" defer></script>
+<script src="{{ 'loyalty-widget.js' | asset_url }}" defer></script>
 `.trim();
 }
 

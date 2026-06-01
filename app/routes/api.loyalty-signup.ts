@@ -1,20 +1,19 @@
-import type { ActionFunctionArgs } from "react-router";
-import { authenticate } from "../shopify.server";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { getOrCreateLoyaltyCustomer } from "../services/points.server";
 import db from "../db.server";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept",
+  "Content-Type": "application/json",
+};
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers: corsHeaders });
+}
+
 export async function action({ request }: ActionFunctionArgs) {
-  // Support both storefront (public) and admin calls
-  const origin = request.headers.get("origin") || "";
-
-  // CORS headers for Theme App Extension calls
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json",
-  };
-
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -37,7 +36,6 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    // Check if already enrolled
     const existing = await db.loyaltyCustomer.findUnique({
       where: {
         shop_shopifyCustomerId: {
@@ -54,7 +52,6 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    // Enroll the customer
     const customer = await getOrCreateLoyaltyCustomer(
       shop,
       String(customerId),
@@ -72,16 +69,4 @@ export async function action({ request }: ActionFunctionArgs) {
       { status: 500, headers: corsHeaders }
     );
   }
-}
-
-export async function loader({ request }: ActionFunctionArgs) {
-  // Handle preflight / GET check
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Content-Type": "application/json",
-  };
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: corsHeaders,
-  });
 }

@@ -5,8 +5,9 @@
 (function () {
   "use strict";
 
-  const APP_URL = window.__LOYALTY_APP_URL__ || ""; // injected by liquid
-  const SHOP = window.__LOYALTY_SHOP__ || Shopify.shop;
+  const _root = document.getElementById("loyalty-widget-root");
+  const APP_URL = window.__LOYALTY_APP_URL__ || (_root && _root.dataset.appUrl) || "";
+  const SHOP = window.__LOYALTY_SHOP__ || (Shopify && Shopify.shop) || "";
   const CUSTOMER_ID = window.__LOYALTY_CUSTOMER_ID__ || null; // injected by liquid if logged in
 
   const TIER_COLORS = {
