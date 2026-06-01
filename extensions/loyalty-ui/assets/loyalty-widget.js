@@ -1,28 +1,22 @@
 // extensions/loyalty-ui/assets/loyalty-widget.js
-// Loyalty Program Widget — Signup + Dashboard
-// Drop this in your Theme App Extension as a Script tag block
-
 (function () {
   "use strict";
 
   const _root = document.getElementById("loyalty-widget-root");
   const APP_URL = window.__LOYALTY_APP_URL__ || (_root && _root.dataset.appUrl) || "";
   const SHOP = window.__LOYALTY_SHOP__ || (Shopify && Shopify.shop) || "";
-  const CUSTOMER_ID = window.__LOYALTY_CUSTOMER_ID__ || null; // injected by liquid if logged in
+  const CUSTOMER_ID = window.__LOYALTY_CUSTOMER_ID__ || null;
 
-  const TIER_COLORS = {
-    bronze: { bg: "#f5e6d3", accent: "#c8813a", text: "#7a4a1e", glow: "rgba(200,129,58,0.3)" },
-    silver: { bg: "#e8edf2", accent: "#8899aa", text: "#3a5068", glow: "rgba(136,153,170,0.3)" },
-    gold:   { bg: "#fdf3d0", accent: "#d4a017", text: "#7a5a00", glow: "rgba(212,160,23,0.3)" },
+  const TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇" };
+
+  // Tier hero bg colors stay per-tier (not overridable via style settings)
+  const TIER_HERO = {
+    bronze: { bg: "#f5e6d3", accent: "#c8813a", text: "#7a4a1e" },
+    silver: { bg: "#e8edf2", accent: "#8899aa", text: "#3a5068" },
+    gold:   { bg: "#fdf3d0", accent: "#d4a017", text: "#7a5a00" },
   };
 
-  const TIER_ICONS = {
-    bronze: "🥉",
-    silver: "🥈",
-    gold:   "🥇",
-  };
-
-  // ── Inject global styles once ──────────────────────────────────────────────
+  // ── Inject styles ──────────────────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById("loyalty-widget-styles")) return;
     const style = document.createElement("style");
@@ -34,383 +28,165 @@
         font-family: 'DM Sans', sans-serif;
         --lw-radius: 16px;
         --lw-shadow: 0 4px 24px rgba(0,0,0,0.08);
-        --lw-accent: #d4a017;
-        --lw-bg: #0d0d0d;
-        --lw-text: #ffffff;
-        --lw-btn-bg: #d4a017;
-        --lw-btn-text: #0d0d0d;
+        --lw-accent:      #d4a017;
+        --lw-bg:          #0d0d0d;
+        --lw-text:        #ffffff;
+        --lw-btn-bg:      #d4a017;
+        --lw-btn-text:    #0d0d0d;
         max-width: 480px;
         margin: 0 auto;
       }
 
-      /* ── Signup Card ── */
+      /* ── Signup ── */
       .lw-signup {
         background: var(--lw-bg);
         border-radius: var(--lw-radius);
         padding: 36px 32px;
-        color: #fff;
+        color: var(--lw-text);
         position: relative;
         overflow: hidden;
         box-shadow: var(--lw-shadow);
       }
       .lw-signup::before {
         content: '';
-        position: absolute;
-        top: -60px; right: -60px;
+        position: absolute; top: -60px; right: -60px;
         width: 200px; height: 200px;
-        background: radial-gradient(circle, rgba(212,160,23,0.25) 0%, transparent 70%);
+        background: radial-gradient(circle, color-mix(in srgb, var(--lw-accent) 25%, transparent) 0%, transparent 70%);
         pointer-events: none;
       }
       .lw-signup-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(212,160,23,0.15);
-        border: 1px solid rgba(212,160,23,0.4);
-        border-radius: 999px;
-        padding: 4px 12px;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        color: #d4a017;
-        text-transform: uppercase;
-        margin-bottom: 20px;
+        display: inline-flex; align-items: center; gap: 6px;
+        background: color-mix(in srgb, var(--lw-accent) 15%, transparent);
+        border: 1px solid color-mix(in srgb, var(--lw-accent) 40%, transparent);
+        border-radius: 999px; padding: 4px 12px;
+        font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+        color: var(--lw-accent); text-transform: uppercase; margin-bottom: 20px;
       }
       .lw-signup h2 {
         font-family: 'DM Serif Display', serif;
-        font-size: 28px;
-        line-height: 1.2;
-        margin: 0 0 10px;
-        font-weight: 400;
+        font-size: 28px; line-height: 1.2; margin: 0 0 10px; font-weight: 400;
+        color: var(--lw-text);
       }
-      .lw-signup h2 em { font-style: italic; color: #d4a017; }
+      .lw-signup h2 em { font-style: italic; color: var(--lw-accent); }
       .lw-signup p {
-        font-size: 14px;
-        color: rgba(255,255,255,0.6);
-        margin: 0 0 28px;
-        line-height: 1.6;
+        font-size: 14px; color: color-mix(in srgb, var(--lw-text) 60%, transparent);
+        margin: 0 0 28px; line-height: 1.6;
       }
-      .lw-perks {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 28px;
-        flex-wrap: wrap;
-      }
+      .lw-perks { display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; }
       .lw-perk {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 10px;
-        padding: 10px 14px;
-        font-size: 12px;
-        color: rgba(255,255,255,0.8);
-        flex: 1;
-        min-width: 100px;
-        text-align: center;
+        background: color-mix(in srgb, var(--lw-text) 6%, transparent);
+        border: 1px solid color-mix(in srgb, var(--lw-text) 10%, transparent);
+        border-radius: 10px; padding: 10px 14px; font-size: 12px;
+        color: color-mix(in srgb, var(--lw-text) 80%, transparent);
+        flex: 1; min-width: 100px; text-align: center;
       }
       .lw-perk-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+
       .lw-btn {
-        display: block;
-        width: 100%;
-        padding: 14px 24px;
-        border-radius: 10px;
-        border: none;
-        cursor: pointer;
-        font-family: 'DM Sans', sans-serif;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        transition: all 0.2s ease;
-        text-align: center;
+        display: block; width: 100%; padding: 14px 24px;
+        border-radius: calc(var(--lw-radius) - 6px);
+        border: none; cursor: pointer;
+        font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600;
+        letter-spacing: 0.01em; transition: all 0.2s ease; text-align: center;
       }
-      .lw-btn-primary {
-        background: var(--lw-btn-bg);
-        color: var(--lw-btn-text);
-      }
-      .lw-btn-primary:hover { background: var(--lw-btn-bg); opacity: 0.88; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+      .lw-btn-primary { background: var(--lw-btn-bg); color: var(--lw-btn-text); }
+      .lw-btn-primary:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
       .lw-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
       .lw-signup-note {
-        margin-top: 12px;
-        font-size: 11px;
-        color: rgba(255,255,255,0.35);
-        text-align: center;
+        margin-top: 12px; font-size: 11px;
+        color: color-mix(in srgb, var(--lw-text) 35%, transparent); text-align: center;
       }
 
       /* ── Dashboard ── */
       .lw-dashboard {
-        background: #fff;
-        border-radius: var(--lw-radius);
-        overflow: hidden;
-        box-shadow: var(--lw-shadow);
-        border: 1px solid #e8e8e8;
+        background: #fff; border-radius: var(--lw-radius);
+        overflow: hidden; box-shadow: var(--lw-shadow); border: 1px solid #e8e8e8;
       }
-
-      .lw-hero {
-        padding: 28px 28px 24px;
-        position: relative;
-        overflow: hidden;
-      }
-      .lw-hero-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 20px;
-      }
-      .lw-greeting {
-        font-size: 13px;
-        color: rgba(0,0,0,0.45);
-        margin-bottom: 2px;
-      }
-      .lw-name {
-        font-family: 'DM Serif Display', serif;
-        font-size: 22px;
-        font-weight: 400;
-        color: #0d0d0d;
-      }
+      .lw-hero { padding: 28px 28px 24px; position: relative; overflow: hidden; }
+      .lw-hero-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+      .lw-greeting { font-size: 13px; color: rgba(0,0,0,0.45); margin-bottom: 2px; }
+      .lw-name { font-family: 'DM Serif Display', serif; font-size: 22px; font-weight: 400; color: #0d0d0d; }
       .lw-tier-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 5px 13px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 5px 13px; border-radius: 999px;
+        font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
       }
+      .lw-points-display { display: flex; align-items: baseline; gap: 6px; margin-bottom: 20px; }
+      .lw-points-number { font-family: 'DM Serif Display', serif; font-size: 48px; line-height: 1; color: #0d0d0d; }
+      .lw-points-label { font-size: 14px; color: rgba(0,0,0,0.5); font-weight: 500; }
 
-      .lw-points-display {
-        display: flex;
-        align-items: baseline;
-        gap: 6px;
-        margin-bottom: 20px;
-      }
-      .lw-points-number {
-        font-family: 'DM Serif Display', serif;
-        font-size: 48px;
-        line-height: 1;
-        color: #0d0d0d;
-      }
-      .lw-points-label {
-        font-size: 14px;
-        color: rgba(0,0,0,0.5);
-        font-weight: 500;
-      }
-
-      /* Progress bar */
       .lw-progress-wrap { margin-bottom: 4px; }
-      .lw-progress-labels {
-        display: flex;
-        justify-content: space-between;
-        font-size: 11px;
-        color: rgba(0,0,0,0.45);
-        margin-bottom: 6px;
-      }
-      .lw-progress-track {
-        height: 6px;
-        background: rgba(0,0,0,0.08);
-        border-radius: 999px;
-        overflow: hidden;
-      }
-      .lw-progress-fill {
-        height: 100%;
-        border-radius: 999px;
-        transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .lw-progress-hint {
-        font-size: 11px;
-        color: rgba(0,0,0,0.4);
-        margin-top: 5px;
-      }
+      .lw-progress-labels { display: flex; justify-content: space-between; font-size: 11px; color: rgba(0,0,0,0.45); margin-bottom: 6px; }
+      .lw-progress-track { height: 6px; background: rgba(0,0,0,0.08); border-radius: 999px; overflow: hidden; }
+      .lw-progress-fill { height: 100%; border-radius: 999px; transition: width 1s cubic-bezier(0.4,0,0.2,1); }
+      .lw-progress-hint { font-size: 11px; color: rgba(0,0,0,0.4); margin-top: 5px; }
       .lw-progress-hint strong { color: #0d0d0d; }
-      .lw-max-tier-msg {
-        font-size: 12px;
-        font-weight: 600;
-        color: #d4a017;
-        margin-top: 8px;
-      }
+      .lw-max-tier-msg { font-size: 12px; font-weight: 600; color: var(--lw-accent); margin-top: 8px; }
 
-      /* ── Tabs ── */
-      .lw-tabs {
-        display: flex;
-        border-bottom: 1px solid #efefef;
-        padding: 0 28px;
-        gap: 0;
-      }
+      .lw-tabs { display: flex; border-bottom: 1px solid #efefef; padding: 0 28px; }
       .lw-tab {
-        padding: 12px 16px;
-        font-size: 13px;
-        font-weight: 500;
-        color: rgba(0,0,0,0.4);
-        cursor: pointer;
-        border: none;
-        background: none;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        transition: all 0.15s;
-        font-family: 'DM Sans', sans-serif;
+        padding: 12px 16px; font-size: 13px; font-weight: 500; color: rgba(0,0,0,0.4);
+        cursor: pointer; border: none; background: none;
+        border-bottom: 2px solid transparent; margin-bottom: -1px;
+        transition: all 0.15s; font-family: 'DM Sans', sans-serif;
       }
       .lw-tab:hover { color: #0d0d0d; }
-      .lw-tab.active { color: #0d0d0d; border-bottom-color: #0d0d0d; }
+      .lw-tab.active { color: #0d0d0d; border-bottom-color: var(--lw-accent); }
 
-      /* ── Tab Panels ── */
       .lw-panel { display: none; padding: 20px 28px 28px; }
       .lw-panel.active { display: block; }
 
-      /* Transactions */
       .lw-tx-list { list-style: none; margin: 0; padding: 0; }
-      .lw-tx-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 0;
-        border-bottom: 1px solid #f0f0f0;
-        gap: 12px;
-      }
+      .lw-tx-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f0f0f0; gap: 12px; }
       .lw-tx-item:last-child { border-bottom: none; }
-      .lw-tx-icon {
-        width: 34px; height: 34px;
-        border-radius: 8px;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 14px;
-        flex-shrink: 0;
-      }
+      .lw-tx-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
       .lw-tx-meta { flex: 1; min-width: 0; }
-      .lw-tx-desc {
-        font-size: 13px;
-        font-weight: 500;
-        color: #0d0d0d;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .lw-tx-date {
-        font-size: 11px;
-        color: rgba(0,0,0,0.4);
-        margin-top: 1px;
-      }
-      .lw-tx-pts {
-        font-size: 14px;
-        font-weight: 600;
-        flex-shrink: 0;
-      }
+      .lw-tx-desc { font-size: 13px; font-weight: 500; color: #0d0d0d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lw-tx-date { font-size: 11px; color: rgba(0,0,0,0.4); margin-top: 1px; }
+      .lw-tx-pts { font-size: 14px; font-weight: 600; flex-shrink: 0; }
       .lw-tx-pts.earn { color: #1a7a4a; }
       .lw-tx-pts.redeem { color: #b91c1c; }
       .lw-tx-pts.pending { color: #92400e; }
-      .lw-tx-empty {
-        text-align: center;
-        padding: 32px 0;
-        color: rgba(0,0,0,0.35);
-        font-size: 13px;
-      }
+      .lw-tx-empty { text-align: center; padding: 32px 0; color: rgba(0,0,0,0.35); font-size: 13px; }
 
-      /* Referral */
+      /* Referral — uses CSS vars */
       .lw-referral-card {
-        background: #0d0d0d;
-        border-radius: 12px;
-        padding: 24px;
-        color: #fff;
-        position: relative;
-        overflow: hidden;
+        background: var(--lw-bg); border-radius: calc(var(--lw-radius) - 4px);
+        padding: 24px; color: var(--lw-text); position: relative; overflow: hidden;
       }
       .lw-referral-card::after {
-        content: '';
-        position: absolute;
-        bottom: -40px; right: -40px;
+        content: ''; position: absolute; bottom: -40px; right: -40px;
         width: 160px; height: 160px;
-        background: radial-gradient(circle, rgba(212,160,23,0.2) 0%, transparent 70%);
+        background: radial-gradient(circle, color-mix(in srgb, var(--lw-accent) 20%, transparent) 0%, transparent 70%);
         pointer-events: none;
       }
-      .lw-referral-label {
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: rgba(255,255,255,0.5);
-        margin-bottom: 8px;
-      }
-      .lw-referral-title {
-        font-family: 'DM Serif Display', serif;
-        font-size: 20px;
-        font-weight: 400;
-        margin-bottom: 6px;
-      }
-      .lw-referral-sub {
-        font-size: 13px;
-        color: rgba(255,255,255,0.55);
-        margin-bottom: 20px;
-        line-height: 1.5;
-      }
-      .lw-referral-code-row {
-        display: flex;
-        gap: 8px;
-        align-items: stretch;
-      }
+      .lw-referral-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--lw-text) 50%, transparent); margin-bottom: 8px; }
+      .lw-referral-title { font-family: 'DM Serif Display', serif; font-size: 20px; font-weight: 400; margin-bottom: 6px; color: var(--lw-text); }
+      .lw-referral-sub { font-size: 13px; color: color-mix(in srgb, var(--lw-text) 55%, transparent); margin-bottom: 20px; line-height: 1.5; }
+      .lw-referral-code-row { display: flex; gap: 8px; align-items: stretch; }
       .lw-code-box {
-        flex: 1;
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0.1em;
-        color: #d4a017;
-        font-family: 'DM Sans', monospace;
+        flex: 1; background: color-mix(in srgb, var(--lw-text) 8%, transparent);
+        border: 1px solid color-mix(in srgb, var(--lw-text) 15%, transparent);
+        border-radius: 8px; padding: 10px 14px; font-size: 15px; font-weight: 600;
+        letter-spacing: 0.1em; color: var(--lw-accent); font-family: monospace;
       }
       .lw-copy-btn {
-        background: #d4a017;
-        color: #0d0d0d;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 16px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        font-family: 'DM Sans', sans-serif;
-        transition: all 0.15s;
-        white-space: nowrap;
+        background: var(--lw-btn-bg); color: var(--lw-btn-text);
+        border: none; border-radius: 8px; padding: 10px 16px;
+        font-size: 13px; font-weight: 600; cursor: pointer;
+        font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap;
       }
-      .lw-copy-btn:hover { background: #e8b420; }
+      .lw-copy-btn:hover { opacity: 0.88; }
       .lw-copy-btn.copied { background: #1a7a4a; color: #fff; }
 
-      /* Loading / error states */
-      .lw-loading {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 48px;
-        color: rgba(0,0,0,0.35);
-        font-size: 13px;
-        gap: 8px;
-      }
-      .lw-spinner {
-        width: 18px; height: 18px;
-        border: 2px solid rgba(0,0,0,0.1);
-        border-top-color: #0d0d0d;
-        border-radius: 50%;
-        animation: lw-spin 0.7s linear infinite;
-      }
+      .lw-loading { display: flex; align-items: center; justify-content: center; padding: 48px; color: rgba(0,0,0,0.35); font-size: 13px; gap: 8px; }
+      .lw-spinner { width: 18px; height: 18px; border: 2px solid rgba(0,0,0,0.1); border-top-color: #0d0d0d; border-radius: 50%; animation: lw-spin 0.7s linear infinite; }
       @keyframes lw-spin { to { transform: rotate(360deg); } }
 
-      .lw-not-logged-in {
-        text-align: center;
-        padding: 40px 24px;
-        background: #f9f9f9;
-        border-radius: var(--lw-radius);
-        border: 1px dashed #ddd;
-      }
+      .lw-not-logged-in { text-align: center; padding: 40px 24px; background: #f9f9f9; border-radius: var(--lw-radius); border: 1px dashed #ddd; }
       .lw-not-logged-in p { font-size: 14px; color: rgba(0,0,0,0.5); margin: 8px 0 20px; }
-      .lw-not-logged-in a {
-        display: inline-block;
-        background: #0d0d0d;
-        color: #fff;
-        text-decoration: none;
-        padding: 10px 24px;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 600;
-        transition: opacity 0.15s;
-      }
+      .lw-not-logged-in a { display: inline-block; background: var(--lw-bg); color: var(--lw-text); text-decoration: none; padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; transition: opacity 0.15s; }
       .lw-not-logged-in a:hover { opacity: 0.8; }
 
       @media (max-width: 480px) {
@@ -425,42 +201,53 @@
     document.head.appendChild(style);
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function formatDate(iso) {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  // ── Apply style from API ───────────────────────────────────────────────────
+  async function applyStyle() {
+    if (!APP_URL || !SHOP) return;
+    try {
+      const res = await fetch(`${APP_URL}/api/loyalty-style?shop=${encodeURIComponent(SHOP)}`);
+      if (!res.ok) return;
+      const s = await res.json();
+      const root = document.getElementById("loyalty-widget-root");
+      if (!root) return;
+      if (s.accentColor)          root.style.setProperty("--lw-accent",   s.accentColor);
+      if (s.bgColor)              root.style.setProperty("--lw-bg",        s.bgColor);
+      if (s.textColor)            root.style.setProperty("--lw-text",      s.textColor);
+      if (s.buttonColor)          root.style.setProperty("--lw-btn-bg",    s.buttonColor);
+      if (s.buttonTextColor)      root.style.setProperty("--lw-btn-text",  s.buttonTextColor);
+      if (s.borderRadius != null) root.style.setProperty("--lw-radius",    `${s.borderRadius}px`);
+    } catch (e) { /* non-fatal */ }
   }
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function formatDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
   function txIcon(type, status) {
-    if (status === "pending") return { emoji: "⏳", bg: "#fef3c7" };
+    if (status === "pending")  return { emoji: "⏳", bg: "#fef3c7" };
     if (status === "voided" || status === "deducted") return { emoji: "↩️", bg: "#fee2e2" };
-    if (type === "earn") return { emoji: "⭐", bg: "#d1fae5" };
+    if (type === "earn")   return { emoji: "⭐", bg: "#d1fae5" };
     if (type === "redeem") return { emoji: "🎁", bg: "#fee2e2" };
     if (type === "adjust") return { emoji: "✏️", bg: "#e0e7ff" };
     return { emoji: "📋", bg: "#f3f4f6" };
   }
-
   function txPointsClass(type, status) {
     if (status === "pending") return "pending";
     if (status === "voided" || status === "deducted") return "redeem";
-    if (type === "earn") return "earn";
-    if (type === "redeem") return "redeem";
-    return "";
+    return type === "earn" ? "earn" : type === "redeem" ? "redeem" : "";
   }
-
   function txPointsLabel(type, status, points) {
-    if (status === "voided") return `−${Math.abs(points)} (void)`;
+    if (status === "voided")   return `−${Math.abs(points)} (void)`;
     if (status === "deducted") return `−${Math.abs(points)}`;
-    if (status === "pending") return `+${points} (pending)`;
-    if (type === "earn") return `+${points}`;
-    if (type === "redeem") return `−${Math.abs(points)}`;
+    if (status === "pending")  return `+${points} (pending)`;
+    if (type === "earn")       return `+${points}`;
+    if (type === "redeem")     return `−${Math.abs(points)}`;
     return `${points > 0 ? "+" : ""}${points}`;
   }
-
   function txDesc(tx) {
-    if (tx.note) return tx.note;
+    if (tx.note)      return tx.note;
     if (tx.orderName) return `Order ${tx.orderName}`;
-    if (tx.type === "earn") return "Points earned";
+    if (tx.type === "earn")   return "Points earned";
     if (tx.type === "redeem") return "Points redeemed";
     if (tx.type === "adjust") return "Manual adjustment";
     return "Transaction";
@@ -475,8 +262,7 @@
           <p>Log in to join our loyalty program and start earning rewards.</p>
           <a href="/account/login">Log in to your account</a>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
   // ── Render: Signup ────────────────────────────────────────────────────────
@@ -495,37 +281,28 @@
           <button class="lw-btn lw-btn-primary" id="lw-join-btn">Join for free</button>
           <p class="lw-signup-note">No credit card needed. Instant enrollment.</p>
         </div>
-      </div>
-    `;
+      </div>`;
 
     document.getElementById("lw-join-btn").addEventListener("click", async function () {
       const btn = this;
       btn.disabled = true;
       btn.textContent = "Joining...";
-
       try {
         const res = await fetch(`${APP_URL}/api/loyalty-signup`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            shop: SHOP,
-            customerId: CUSTOMER_ID,
+            shop: SHOP, customerId: CUSTOMER_ID,
             email: window.__LOYALTY_CUSTOMER_EMAIL__ || null,
             firstName: window.__LOYALTY_CUSTOMER_FIRST_NAME__ || null,
             lastName: window.__LOYALTY_CUSTOMER_LAST_NAME__ || null,
           }),
         });
-
         const data = await res.json();
-        if (data.success) {
-          onEnrolled();
-        } else {
-          btn.disabled = false;
-          btn.textContent = "Try again";
-        }
+        if (data.success) { onEnrolled(); }
+        else { btn.disabled = false; btn.textContent = "Try again"; }
       } catch (e) {
-        btn.disabled = false;
-        btn.textContent = "Try again";
+        btn.disabled = false; btn.textContent = "Try again";
         console.error("[loyalty-widget] signup error", e);
       }
     });
@@ -534,29 +311,26 @@
   // ── Render: Dashboard ─────────────────────────────────────────────────────
   function renderDashboard(container, data) {
     const { customer, tierProgress, transactions, referralCode } = data;
-    const tier = customer.tier || "bronze";
-    const colors = TIER_COLORS[tier] || TIER_COLORS.bronze;
-    const icon = TIER_ICONS[tier] || "🥉";
-    const firstName = customer.firstName || "Member";
+    const tier   = customer.tier || "bronze";
+    const hero   = TIER_HERO[tier] || TIER_HERO.bronze;
+    const icon   = TIER_ICONS[tier] || "🥉";
+    const name   = customer.firstName || "Member";
 
-    const progressBar = tierProgress.nextTier
-      ? `
-        <div class="lw-progress-wrap">
-          <div class="lw-progress-labels">
-            <span>${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
-            <span>${TIER_ICONS[tierProgress.nextTier]} ${tierProgress.nextTier.charAt(0).toUpperCase() + tierProgress.nextTier.slice(1)}</span>
-          </div>
-          <div class="lw-progress-track">
-            <div class="lw-progress-fill" style="width:${tierProgress.progressPercent}%;background:${colors.accent}"></div>
-          </div>
-          <div class="lw-progress-hint"><strong>${tierProgress.pointsToNext.toLocaleString()} pts</strong> to reach ${tierProgress.nextTier}</div>
-        </div>`
-      : `<div class="lw-max-tier-msg">🏆 You've reached our highest tier!</div>`;
+    const progressBar = tierProgress.nextTier ? `
+      <div class="lw-progress-wrap">
+        <div class="lw-progress-labels">
+          <span>${icon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
+          <span>${TIER_ICONS[tierProgress.nextTier]} ${tierProgress.nextTier.charAt(0).toUpperCase() + tierProgress.nextTier.slice(1)}</span>
+        </div>
+        <div class="lw-progress-track">
+          <div class="lw-progress-fill" style="width:${tierProgress.progressPercent}%;background:${hero.accent}"></div>
+        </div>
+        <div class="lw-progress-hint"><strong>${tierProgress.pointsToNext.toLocaleString()} pts</strong> to reach ${tierProgress.nextTier}</div>
+      </div>` : `<div class="lw-max-tier-msg">🏆 You've reached our highest tier!</div>`;
 
     const txRows = transactions.length
       ? transactions.map((tx) => {
           const { emoji, bg } = txIcon(tx.type, tx.status);
-          const cls = txPointsClass(tx.type, tx.status);
           return `
             <li class="lw-tx-item">
               <div class="lw-tx-icon" style="background:${bg}">${emoji}</div>
@@ -564,7 +338,7 @@
                 <div class="lw-tx-desc">${txDesc(tx)}</div>
                 <div class="lw-tx-date">${formatDate(tx.createdAt)}</div>
               </div>
-              <div class="lw-tx-pts ${cls}">${txPointsLabel(tx.type, tx.status, tx.points)}</div>
+              <div class="lw-tx-pts ${txPointsClass(tx.type, tx.status)}">${txPointsLabel(tx.type, tx.status, tx.points)}</div>
             </li>`;
         }).join("")
       : `<div class="lw-tx-empty">No transactions yet. Start shopping to earn points!</div>`;
@@ -572,13 +346,13 @@
     container.innerHTML = `
       <div class="lw-root">
         <div class="lw-dashboard">
-          <div class="lw-hero" style="background:${colors.bg}">
+          <div class="lw-hero" style="background:${hero.bg}">
             <div class="lw-hero-top">
               <div>
                 <div class="lw-greeting">Welcome back,</div>
-                <div class="lw-name">${firstName}</div>
+                <div class="lw-name">${name}</div>
               </div>
-              <div class="lw-tier-badge" style="background:${colors.accent};color:${colors.bg}">
+              <div class="lw-tier-badge" style="background:${hero.accent};color:${hero.bg}">
                 ${icon} ${tier}
               </div>
             </div>
@@ -593,11 +367,9 @@
             <button class="lw-tab active" data-panel="history">History</button>
             <button class="lw-tab" data-panel="referral">Refer a Friend</button>
           </div>
-
           <div class="lw-panel active" id="lw-panel-history">
             <ul class="lw-tx-list">${txRows}</ul>
           </div>
-
           <div class="lw-panel" id="lw-panel-referral">
             <div class="lw-referral-card">
               <div class="lw-referral-label">Refer & Earn</div>
@@ -610,10 +382,8 @@
             </div>
           </div>
         </div>
-      </div>
-    `;
+      </div>`;
 
-    // Tab switching
     container.querySelectorAll(".lw-tab").forEach((tab) => {
       tab.addEventListener("click", function () {
         container.querySelectorAll(".lw-tab").forEach((t) => t.classList.remove("active"));
@@ -623,39 +393,12 @@
       });
     });
 
-    // Copy referral code
     document.getElementById("lw-copy-btn").addEventListener("click", function () {
       navigator.clipboard.writeText(referralCode).then(() => {
-        this.textContent = "Copied!";
-        this.classList.add("copied");
-        setTimeout(() => {
-          this.textContent = "Copy";
-          this.classList.remove("copied");
-        }, 2000);
+        this.textContent = "Copied!"; this.classList.add("copied");
+        setTimeout(() => { this.textContent = "Copy"; this.classList.remove("copied"); }, 2000);
       });
     });
-  }
-
-  // ── Apply style from API ──────────────────────────────────────────────────
-  async function applyStyle() {
-    if (!APP_URL || !SHOP) return;
-    try {
-      const res = await fetch(`${APP_URL}/api/loyalty-style?shop=${encodeURIComponent(SHOP)}`);
-      if (!res.ok) return;
-      const style = await res.json();
-
-      const root = document.getElementById("loyalty-widget-root");
-      if (!root) return;
-
-      if (style.accentColor)     root.style.setProperty("--lw-accent",      style.accentColor);
-      if (style.bgColor)         root.style.setProperty("--lw-bg",           style.bgColor);
-      if (style.textColor)       root.style.setProperty("--lw-text",         style.textColor);
-      if (style.buttonColor)     root.style.setProperty("--lw-btn-bg",       style.buttonColor);
-      if (style.buttonTextColor) root.style.setProperty("--lw-btn-text",     style.buttonTextColor);
-      if (style.borderRadius != null) root.style.setProperty("--lw-radius",  `${style.borderRadius}px`);
-    } catch (e) {
-      // non-fatal — widget uses default styles
-    }
   }
 
   // ── Main init ─────────────────────────────────────────────────────────────
@@ -664,15 +407,10 @@
     if (!container) return;
 
     injectStyles();
-    applyStyle(); // async, non-blocking
+    await applyStyle(); // wait for style before rendering so colors are applied
 
-    // Not logged in
-    if (!CUSTOMER_ID) {
-      renderNotLoggedIn(container);
-      return;
-    }
+    if (!CUSTOMER_ID) { renderNotLoggedIn(container); return; }
 
-    // Loading state
     container.innerHTML = `
       <div class="lw-root">
         <div class="lw-loading"><div class="lw-spinner"></div> Loading your rewards…</div>
@@ -683,19 +421,14 @@
         `${APP_URL}/api/loyalty-dashboard?shop=${encodeURIComponent(SHOP)}&customerId=${encodeURIComponent(CUSTOMER_ID)}`
       );
       const data = await res.json();
-
-      if (!data.enrolled) {
-        renderSignup(container, () => init());
-      } else {
-        renderDashboard(container, data);
-      }
+      if (!data.enrolled) { renderSignup(container, () => init()); }
+      else { renderDashboard(container, data); }
     } catch (e) {
       console.error("[loyalty-widget] init error", e);
       container.innerHTML = `<div class="lw-root"><div class="lw-loading">Something went wrong. Please refresh.</div></div>`;
     }
   }
 
-  // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
