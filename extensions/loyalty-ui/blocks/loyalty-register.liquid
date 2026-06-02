@@ -8,19 +8,19 @@
 
 <style>
   #loyalty-register-{{ section.id }} {
-    --lr-accent:       {{ section.settings.accent_color }};
-    --lr-bg:           {{ section.settings.bg_color }};
-    --lr-text:         {{ section.settings.text_color }};
-    --lr-btn-bg:       {{ section.settings.button_color }};
-    --lr-btn-text:     {{ section.settings.button_text_color }};
-    --lr-radius:       {{ section.settings.border_radius }}px;
-    --lr-align:        {{ section.settings.text_alignment }};
+    --lr-accent:       {{ block.settings.accent_color }};
+    --lr-bg:           {{ block.settings.bg_color }};
+    --lr-text:         {{ block.settings.text_color }};
+    --lr-btn-bg:       {{ block.settings.button_color }};
+    --lr-btn-text:     {{ block.settings.button_text_color }};
+    --lr-radius:       {{ block.settings.border_radius }}px;
+    --lr-align:        {{ block.settings.text_alignment }};
       background: var(--lr-bg);
-    padding: {{ section.settings.padding_top }}px {{ section.settings.padding_side }}px {{ section.settings.padding_bottom }}px;
+    padding: {{ block.settings.padding_top }}px {{ block.settings.padding_side }}px {{ block.settings.padding_bottom }}px;
   }
 
   #loyalty-register-{{ section.id }} .lr-inner {
-    max-width: {{ section.settings.content_width }}px;
+    max-width: {{ block.settings.content_width }}px;
     margin: 0 auto;
     text-align: var(--lr-align);
   }
@@ -44,7 +44,7 @@
 
   #loyalty-register-{{ section.id }} .lr-heading {
     font-family: 'DM Serif Display', serif;
-    font-size: clamp(28px, 4vw, {{ section.settings.heading_size }}px);
+    font-size: clamp(28px, 4vw, {{ block.settings.heading_size }}px);
     font-weight: 400;
     line-height: 1.15;
     color: var(--lr-text);
@@ -58,13 +58,13 @@
 
   #loyalty-register-{{ section.id }} .lr-desc {
     font-family: 'DM Sans', sans-serif;
-    font-size: {{ section.settings.description_size }}px;
+    font-size: {{ block.settings.description_size }}px;
     color: color-mix(in srgb, var(--lr-text) 65%, transparent);
     line-height: 1.7;
     margin: 0 0 32px;
     max-width: 560px;
-    {% if section.settings.text_alignment == 'center' %}margin-left: auto; margin-right: auto;{% endif %}
-    {% if section.settings.text_alignment == 'right' %}margin-left: auto;{% endif %}
+    {% if block.settings.text_alignment == 'center' %}margin-left: auto; margin-right: auto;{% endif %}
+    {% if block.settings.text_alignment == 'right' %}margin-left: auto;{% endif %}
   }
 
   #loyalty-register-{{ section.id }} .lr-perks {
@@ -163,29 +163,29 @@
 </style>
 {% assign flex_align = 'center' %}
 
-{% if section.settings.text_alignment == 'left' %}
+{% if block.settings.text_alignment == 'left' %}
   {% assign flex_align = 'flex-start' %}
-{% elsif section.settings.text_alignment == 'right' %}
+{% elsif block.settings.text_alignment == 'right' %}
   {% assign flex_align = 'flex-end' %}
 {% endif %}
 <div id="loyalty-register-{{ section.id }}">
   <div class="lr-inner">
 
-    {% if section.settings.eyebrow != blank %}
-      <div class="lr-eyebrow">✦ {{ section.settings.eyebrow }}</div>
+    {% if block.settings.eyebrow != blank %}
+      <div class="lr-eyebrow">✦ {{ block.settings.eyebrow }}</div>
     {% endif %}
 
-    <h2 class="lr-heading">{{ section.settings.heading }}</h2>
+    <h2 class="lr-heading">{{ block.settings.heading }}</h2>
 
-    {% if section.settings.description != blank %}
-      <p class="lr-desc">{{ section.settings.description }}</p>
+    {% if block.settings.description != blank %}
+      <p class="lr-desc">{{ block.settings.description }}</p>
     {% endif %}
 
-    {% if section.settings.show_perks %}
+    {% if block.settings.show_perks %}
       <div class="lr-perks">
-        {% if section.settings.perk_1 != blank %}<div class="lr-perk">{{ section.settings.perk_1 }}</div>{% endif %}
-        {% if section.settings.perk_2 != blank %}<div class="lr-perk">{{ section.settings.perk_2 }}</div>{% endif %}
-        {% if section.settings.perk_3 != blank %}<div class="lr-perk">{{ section.settings.perk_3 }}</div>{% endif %}
+        {% if block.settings.perk_1 != blank %}<div class="lr-perk">{{ block.settings.perk_1 }}</div>{% endif %}
+        {% if block.settings.perk_2 != blank %}<div class="lr-perk">{{ block.settings.perk_2 }}</div>{% endif %}
+        {% if block.settings.perk_3 != blank %}<div class="lr-perk">{{ block.settings.perk_3 }}</div>{% endif %}
       </div>
     {% endif %}
 
@@ -201,22 +201,22 @@
           data-customer-first="{{ customer.first_name }}"
           data-customer-last="{{ customer.last_name }}"
           data-app-url="{{ shop.metafields.loyalty.app_url }}"
-          data-dashboard-url="{{ section.settings.dashboard_url | default: '/pages/loyalty-rewards' }}"
+          data-dashboard-url="{{ block.settings.dashboard_url | default: '/pages/loyalty-rewards' }}"
         >
-          {{ section.settings.button_text }}
+          {{ block.settings.button_text }}
         </button>
       {% else %}
         <a
           href="/account/login?return_url={{ request.path | url_encode }}"
           class="lr-btn lr-btn-primary"
         >
-          {{ section.settings.login_button_text }}
+          {{ block.settings.login_button_text }}
         </a>
       {% endif %}
 
-      {% if section.settings.show_secondary_button and section.settings.secondary_button_text != blank %}
-        <a href="{{ section.settings.secondary_button_url }}" class="lr-btn lr-btn-secondary">
-          {{ section.settings.secondary_button_text }}
+      {% if block.settings.show_secondary_button and block.settings.secondary_button_text != blank %}
+        <a href="{{ block.settings.secondary_button_url }}" class="lr-btn lr-btn-secondary">
+          {{ block.settings.secondary_button_text }}
         </a>
       {% endif %}
     </div>
@@ -247,7 +247,7 @@
       
       const data = await res.json();
       if (data.enrolled) {
-        btn.textContent = {{ section.settings.enrolled_button_text | json }};
+        btn.textContent = {{ block.settings.enrolled_button_text | json }};
         btn.dataset.enrolled = 'true';
         btn.dataset.enrolled = 'true';
 btn.classList.add('enrolled');
@@ -290,7 +290,7 @@ btn.classList.add('enrolled');
         // Show success message then redirect
         const successEl = document.getElementById(`lr-success-${SECTION_ID}`);
         if (successEl) successEl.classList.add('show');
-        btn.textContent = {{ section.settings.enrolled_button_text | json }};
+        btn.textContent = {{ block.settings.enrolled_button_text | json }};
         btn.disabled = false;
         setTimeout(() => { window.location.href = DASHBOARD; }, 1800);
       } else {
