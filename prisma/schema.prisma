@@ -34,19 +34,20 @@ model Session {
 }
 
 model LoyaltyCustomer {
-  id              String   @id @default(cuid())
-  shop            String
+  id                String   @id @default(cuid())
+  shop              String
   shopifyCustomerId String
-  email           String?
-  firstName       String?
-  lastName        String?
-  points          Int      @default(0)
-  lifetimePoints  Int      @default(0)
-  tier            String   @default("bronze")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  email             String?
+  firstName         String?
+  lastName          String?
+  points            Int      @default(0)
+  lifetimePoints    Int      @default(0)
+  tier              String   @default("bronze")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  transactions    PointTransaction[]
+  transactions      PointTransaction[]
+  vouchers          RedemptionVoucher[]
 
   @@unique([shop, shopifyCustomerId])
   @@index([shop])
@@ -56,9 +57,9 @@ model PointTransaction {
   id          String   @id @default(cuid())
   shop        String
   customerId  String
-  type        String   // "earn" | "redeem" | "expire" | "adjust"
+  type        String
   points      Int
-  status  String @default("active") // "pending" | "active" | "deducted"
+  status      String   @default("active")
   orderId     String?
   orderName   String?
   note        String?
@@ -67,6 +68,23 @@ model PointTransaction {
   customer    LoyaltyCustomer @relation(fields: [customerId], references: [id])
 
   @@index([shop, customerId])
+}
+
+model RedemptionVoucher {
+  id             String   @id @default(cuid())
+  shop           String
+  customerId     String
+  code           String
+  discountAmount Float
+  pointsUsed     Int
+  status         String   @default("active")
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  customer       LoyaltyCustomer @relation(fields: [customerId], references: [id])
+
+  @@index([shop, customerId])
+  @@index([code])
 }
 
 model TierConfig {
@@ -82,18 +100,28 @@ model TierConfig {
 model LoyaltySettings {
   id                String   @id @default(cuid())
   shop              String   @unique
-  pointsPerCurrency Float    @default(10)   // pts per $1
-  orderAmountType   String   @default("subtotal") // "subtotal" | "total"
+
+  pointsPerCurrency Float    @default(10)
+  orderAmountType   String   @default("subtotal")
   bronzeMultiplier  Float    @default(1.0)
   silverMultiplier  Float    @default(1.25)
   goldMultiplier    Float    @default(1.5)
+
+  bronzeRedemptionRate  Float  @default(100)
+  silverRedemptionRate  Float  @default(80)
+  goldRedemptionRate    Float  @default(60)
+
+  voucherPreset1    Int    @default(500)
+  voucherPreset2    Int    @default(1000)
+  voucherPreset3    Int    @default(2000)
+
+  accentColor       String @default("#d4a017")
+  bgColor           String @default("#0d0d0d")
+  textColor         String @default("#ffffff")
+  buttonColor       String @default("#d4a017")
+  buttonTextColor   String @default("#0d0d0d")
+  borderRadius      Int    @default(16)
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  accentColor     String @default("#d4a017")
-bgColor         String @default("#0d0d0d")
-textColor       String @default("#ffffff")
-buttonColor     String @default("#d4a017")
-buttonTextColor String @default("#0d0d0d")
-borderRadius    Int    @default(16)
 }
-

@@ -1,12 +1,13 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getCustomerBalance } from "../services/points.server";
 import { getTierConfig } from "../services/tierService";
+import { getLoyaltySettings, calculateRedemptionValue } from "../services/loyaltySettings.server";
 import db from "../db.server";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Accept",
   "Content-Type": "application/json",
 };
 
@@ -15,120 +16,107 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  const url = new URL(request.url);
-  const shop = url.searchParams.get("shop");
+  const url        = new URL(request.url);
+  const shop       = url.searchParams.get("shop");
   const customerId = url.searchParams.get("customerId");
 
   if (!shop || !customerId) {
-    return new Response(
-      JSON.stringify({ error: "shop and customerId are required" }),
-      { status: 400, headers: corsHeaders }
-    );
+    return json({ error: "shop and customerId are required" }, 400);
   }
 
   try {
-    // Check enrollment
     const enrolled = await db.loyaltyCustomer.findUnique({
-      where: {
-        shop_shopifyCustomerId: {
-          shop,
-          shopifyCustomerId: String(customerId),
-        },
-      },
+      where: { shop_shopifyCustomerId: { shop, shopifyCustomerId: String(customerId) } },
     });
 
-    if (!enrolled) {
-      return new Response(
-        JSON.stringify({ enrolled: false }),
-        { status: 200, headers: corsHeaders }
-      );
-    }
+    if (!enrolled) return json({ enrolled: false }, 200);
 
-    // Get balance + transactions
-    const balance = await getCustomerBalance(shop, String(customerId));
+    const [balance, tierConfig, settings] = await Promise.all([
+      getCustomerBalance(shop, String(customerId)),
+      getTierConfig(shop),
+      getLoyaltySettings(shop),
+    ]);
 
-    // Get tier thresholds for progress bar
-    const tierConfig = await getTierConfig(shop);
-
-    // Build tier progress info
     const lifetimePoints = balance?.lifetimePoints ?? 0;
-    const currentTier = balance?.tier ?? "bronze";
+    const currentTier    = balance?.tier ?? "bronze";
+    const tierProgress   = buildTierProgress(currentTier, lifetimePoints, tierConfig);
+    const referralCode   = generateReferralCode(shop, String(customerId));
 
-    const tierProgress = buildTierProgress(currentTier, lifetimePoints, tierConfig);
+    // Active vouchers (not expired)
+    const now = new Date();
+    const vouchers = await db.redemptionVoucher.findMany({
+      where:   { shop, customerId: enrolled.id, status: "active", expiresAt: { gt: now } },
+      orderBy: { createdAt: "desc" },
+      take:    10,
+    });
 
-    // Build referral token (simple shop+customer hash for now)
-    const referralCode = generateReferralCode(shop, String(customerId));
+    // Redemption presets with dollar values for this tier
+    const presets = [
+      settings.voucherPreset1,
+      settings.voucherPreset2,
+      settings.voucherPreset3,
+    ].map((pts) => ({
+      points: pts,
+      value:  calculateRedemptionValue(pts, currentTier, settings),
+      canAfford: (balance?.points ?? 0) >= pts,
+    }));
 
-    return new Response(
-      JSON.stringify({
-        enrolled: true,
-        customer: {
-          firstName: balance?.firstName,
-          lastName: balance?.lastName,
-          email: balance?.email,
-          points: balance?.points ?? 0,
-          lifetimePoints,
-          tier: currentTier,
-        },
-        tierProgress,
-        transactions: balance?.transactions ?? [],
-        referralCode,
-      }),
-      { status: 200, headers: corsHeaders }
-    );
+    return json({
+      enrolled: true,
+      customer: {
+        firstName:     balance?.firstName,
+        lastName:      balance?.lastName,
+        email:         balance?.email,
+        points:        balance?.points        ?? 0,
+        lifetimePoints,
+        tier:          currentTier,
+      },
+      tierProgress,
+      transactions: balance?.transactions ?? [],
+      vouchers:     vouchers.map((v) => ({
+        code:           v.code,
+        discountAmount: v.discountAmount,
+        pointsUsed:     v.pointsUsed,
+        expiresAt:      v.expiresAt.toISOString(),
+      })),
+      redemptionPresets: presets,
+      referralCode,
+    }, 200);
+
   } catch (err: any) {
     console.error("[api.loyalty-dashboard] Error:", err);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: corsHeaders }
-    );
+    return json({ error: "Internal server error" }, 500);
   }
+}
+
+function json(data: any, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: corsHeaders });
 }
 
 function buildTierProgress(
   currentTier: string,
   lifetimePoints: number,
-  tierConfig: { bronze: number; silver: number; gold: number }
+  tierConfig: { bronze: number; silver: number; gold: number },
 ) {
   const tiers = [
     { name: "bronze", min: tierConfig.bronze },
     { name: "silver", min: tierConfig.silver },
-    { name: "gold", min: tierConfig.gold },
+    { name: "gold",   min: tierConfig.gold   },
   ];
-
-  const currentIndex = tiers.findIndex((t) => t.name === currentTier);
-  const nextTier = tiers[currentIndex + 1] ?? null;
+  const idx     = tiers.findIndex((t) => t.name === currentTier);
+  const nextTier = tiers[idx + 1] ?? null;
 
   if (!nextTier) {
-    // Already at gold — max tier
-    return {
-      currentTier,
-      nextTier: null,
-      pointsToNext: 0,
-      progressPercent: 100,
-      currentMin: tierConfig.gold,
-      nextMin: null,
-    };
+    return { currentTier, nextTier: null, pointsToNext: 0, progressPercent: 100, currentMin: tierConfig.gold, nextMin: null };
   }
 
-  const currentMin = tiers[currentIndex].min;
-  const nextMin = nextTier.min;
-  const range = nextMin - currentMin;
-  const earned = lifetimePoints - currentMin;
-  const progressPercent = Math.min(100, Math.max(0, Math.floor((earned / range) * 100)));
+  const currentMin = tiers[idx].min;
+  const nextMin    = nextTier.min;
+  const progress   = Math.min(100, Math.max(0, Math.floor(((lifetimePoints - currentMin) / (nextMin - currentMin)) * 100)));
 
-  return {
-    currentTier,
-    nextTier: nextTier.name,
-    pointsToNext: Math.max(0, nextMin - lifetimePoints),
-    progressPercent,
-    currentMin,
-    nextMin,
-  };
+  return { currentTier, nextTier: nextTier.name, pointsToNext: Math.max(0, nextMin - lifetimePoints), progressPercent: progress, currentMin, nextMin };
 }
 
 function generateReferralCode(shop: string, customerId: string): string {
-  // Simple deterministic code — replace with a real referral system later
-  const base = `${shop}-${customerId}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  return base.slice(0, 12);
+  return `${shop}-${customerId}`.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 12);
 }
