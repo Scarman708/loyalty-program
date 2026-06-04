@@ -66,24 +66,32 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     `, {
       variables: {
-        input: {
-          title:      `Loyalty Reward — ${code}`,
-          code,
-          startsAt:   new Date().toISOString(),
-          endsAt:     expiresAtISO,
-          usageLimit: 1,
-          appliesOncePerCustomer: true,
-          customerGets: {
-            value: {
-              discountAmount: {
-                amount:             String(discountAmount),
-                appliesOnEachItem:  false,
-              },
-            },
-            items: { all: true },
-          },
+  input: {
+    title:      `Loyalty Reward — ${code}`,
+    code,
+    startsAt:   new Date().toISOString(),
+    endsAt:     expiresAtISO,
+    usageLimit: 1,
+    appliesOncePerCustomer: true,
+
+    // NEW: required in latest APIs
+    context: {
+      customerSelection: {
+        all: true,      // or various segment-based / customer-specific rules
+      },
+    },
+
+    customerGets: {
+      value: {
+        discountAmount: {
+          amount:             String(discountAmount),
+          appliesOnEachItem:  false,
         },
       },
+      items: { all: true },
+    },
+  },
+},
     });
 
     const gqlData    = await gqlRes.json();
