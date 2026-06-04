@@ -9,9 +9,15 @@ declare global {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const settings    = await getLoyaltySettings(session.shop);
-  return { settings };
+  const { session, admin } = await authenticate.admin(request);
+  const settings = await getLoyaltySettings(session.shop);
+
+  // Fetch store currency
+  const res      = await admin.graphql(`query { shop { currencyCode } }`);
+  const data     = await res.json();
+  const currency = data.data?.shop?.currencyCode ?? "USD";
+
+  return { settings, currency };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -24,7 +30,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const tab     = raw.tab as string;
   const current = await getLoyaltySettings(session.shop);
 
-  // ── Style ──
   if (tab === "style") {
     await saveLoyaltySettings(session.shop, {
       ...current,
@@ -38,7 +43,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { ok: true, errors: [], tab: "style" };
   }
 
-  // ── Redemption ──
   if (tab === "redemption") {
     const bronzeRate = Number(raw.bronzeRedemptionRate);
     const silverRate = Number(raw.silverRedemptionRate);
@@ -60,14 +64,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       bronzeRedemptionRate: bronzeRate,
       silverRedemptionRate: silverRate,
       goldRedemptionRate:   goldRate,
-      voucherPreset1:       p1,
-      voucherPreset2:       p2,
-      voucherPreset3:       p3,
+      voucherPreset1: p1, voucherPreset2: p2, voucherPreset3: p3,
     });
     return { ok: true, errors: [], tab: "redemption" };
   }
 
-  // ── Earning ──
   const pointsPerCurrency = Number(raw.pointsPerCurrency);
   const orderAmountType   = raw.orderAmountType as "subtotal" | "total";
   const bronzeMultiplier  = Number(raw.bronzeMultiplier);
@@ -86,7 +87,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { ok: true, errors: [], tab: "earning" };
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = { padding: "8px 12px", border: "1px solid #ccc", borderRadius: "6px", fontSize: "14px" };
 
 function ColorField({ label, desc, value, onChange }: { label: string; desc: string; value: string; onChange: (v: string) => void }) {
@@ -105,30 +105,37 @@ function ColorField({ label, desc, value, onChange }: { label: string; desc: str
   );
 }
 
+// Format a number as store currency
+function formatCurrency(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 2 }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
 export default function SettingsPage() {
-  const { settings } = useLoaderData<typeof loader>();
-  const fetcher      = useFetcher<typeof action>();
-  const isSaving     = fetcher.state !== "idle";
-  const result       = fetcher.data;
+  const { settings, currency } = useLoaderData<typeof loader>();
+  const fetcher  = useFetcher<typeof action>();
+  const isSaving = fetcher.state !== "idle";
+  const result   = fetcher.data;
 
   const [activeTab, setActiveTab] = useState<"earning"|"redemption"|"style">("earning");
 
-  // Earning refs
   const ppcRef    = useRef<HTMLInputElement>(null);
   const oatRef    = useRef<HTMLSelectElement>(null);
   const bronzeRef = useRef<HTMLInputElement>(null);
   const silverRef = useRef<HTMLInputElement>(null);
   const goldRef   = useRef<HTMLInputElement>(null);
 
-  // Redemption refs
-  const bronzeRateRef  = useRef<HTMLInputElement>(null);
-  const silverRateRef  = useRef<HTMLInputElement>(null);
-  const goldRateRef    = useRef<HTMLInputElement>(null);
-  const preset1Ref     = useRef<HTMLInputElement>(null);
-  const preset2Ref     = useRef<HTMLInputElement>(null);
-  const preset3Ref     = useRef<HTMLInputElement>(null);
+  const bronzeRateRef = useRef<HTMLInputElement>(null);
+  const silverRateRef = useRef<HTMLInputElement>(null);
+  const goldRateRef   = useRef<HTMLInputElement>(null);
+  const preset1Ref    = useRef<HTMLInputElement>(null);
+  const preset2Ref    = useRef<HTMLInputElement>(null);
+  const preset3Ref    = useRef<HTMLInputElement>(null);
 
-  // Redemption live preview state
+  // Redemption live state — drives the preview table
   const [bronzeRate, setBronzeRate] = useState(settings.bronzeRedemptionRate ?? 100);
   const [silverRate, setSilverRate] = useState(settings.silverRedemptionRate ?? 80);
   const [goldRate,   setGoldRate]   = useState(settings.goldRedemptionRate   ?? 60);
@@ -136,7 +143,6 @@ export default function SettingsPage() {
   const [p2, setP2] = useState(settings.voucherPreset2 ?? 1000);
   const [p3, setP3] = useState(settings.voucherPreset3 ?? 2000);
 
-  // Style state
   const [accentColor,     setAccentColor]     = useState(settings.accentColor     ?? "#d4a017");
   const [bgColor,         setBgColor]         = useState(settings.bgColor         ?? "#0d0d0d");
   const [textColor,       setTextColor]       = useState(settings.textColor       ?? "#ffffff");
@@ -144,35 +150,27 @@ export default function SettingsPage() {
   const [buttonTextColor, setButtonTextColor] = useState(settings.buttonTextColor ?? "#0d0d0d");
   const [borderRadius,    setBorderRadius]    = useState(settings.borderRadius    ?? 16);
 
-  const handleSaveEarning = () => {
-    fetcher.submit({
-      tab: "earning",
-      pointsPerCurrency: Number(ppcRef.current?.value    ?? settings.pointsPerCurrency),
-      orderAmountType:          oatRef.current?.value    ?? settings.orderAmountType,
-      bronzeMultiplier:  Number(bronzeRef.current?.value ?? settings.bronzeMultiplier),
-      silverMultiplier:  Number(silverRef.current?.value ?? settings.silverMultiplier),
-      goldMultiplier:    Number(goldRef.current?.value   ?? settings.goldMultiplier),
-    }, { method: "POST", encType: "application/json" });
-  };
+  const handleSaveEarning = () => fetcher.submit({
+    tab: "earning",
+    pointsPerCurrency: Number(ppcRef.current?.value    ?? settings.pointsPerCurrency),
+    orderAmountType:          oatRef.current?.value    ?? settings.orderAmountType,
+    bronzeMultiplier:  Number(bronzeRef.current?.value ?? settings.bronzeMultiplier),
+    silverMultiplier:  Number(silverRef.current?.value ?? settings.silverMultiplier),
+    goldMultiplier:    Number(goldRef.current?.value   ?? settings.goldMultiplier),
+  }, { method: "POST", encType: "application/json" });
 
-  const handleSaveRedemption = () => {
-    fetcher.submit({
-      tab: "redemption",
-      bronzeRedemptionRate: Number(bronzeRateRef.current?.value ?? settings.bronzeRedemptionRate),
-      silverRedemptionRate: Number(silverRateRef.current?.value ?? settings.silverRedemptionRate),
-      goldRedemptionRate:   Number(goldRateRef.current?.value   ?? settings.goldRedemptionRate),
-      voucherPreset1:       Number(preset1Ref.current?.value    ?? settings.voucherPreset1),
-      voucherPreset2:       Number(preset2Ref.current?.value    ?? settings.voucherPreset2),
-      voucherPreset3:       Number(preset3Ref.current?.value    ?? settings.voucherPreset3),
-    }, { method: "POST", encType: "application/json" });
-  };
+  const handleSaveRedemption = () => fetcher.submit({
+    tab: "redemption",
+    bronzeRedemptionRate: bronzeRate,
+    silverRedemptionRate: silverRate,
+    goldRedemptionRate:   goldRate,
+    voucherPreset1: p1, voucherPreset2: p2, voucherPreset3: p3,
+  }, { method: "POST", encType: "application/json" });
 
-  const handleSaveStyle = () => {
-    fetcher.submit(
-      { tab: "style", accentColor, bgColor, textColor, buttonColor, buttonTextColor, borderRadius },
-      { method: "POST", encType: "application/json" },
-    );
-  };
+  const handleSaveStyle = () => fetcher.submit(
+    { tab: "style", accentColor, bgColor, textColor, buttonColor, buttonTextColor, borderRadius },
+    { method: "POST", encType: "application/json" },
+  );
 
   const showSuccess = result?.ok === true  && result?.tab === activeTab;
   const showErrors  = result?.ok === false && result?.tab === activeTab && (result?.errors?.length ?? 0) > 0;
@@ -180,23 +178,22 @@ export default function SettingsPage() {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: "10px 20px", fontSize: "14px", fontWeight: active ? 600 : 400,
     color: active ? "#0d0d0d" : "#6d7175", cursor: "pointer",
-    borderBottom: `2px solid ${active ? "#0d0d0d" : "transparent"}`,
-    marginBottom: "-1px", background: "none", border: "none",
+    background: "none", border: "none",
     borderBottomWidth: "2px", borderBottomStyle: "solid",
     borderBottomColor: active ? "#0d0d0d" : "transparent",
+    marginBottom: "-1px",
   });
+
   return (
     <s-page heading="Loyalty Settings">
       <s-section>
         <s-card>
-          {/* Tab bar */}
           <div style={{ display: "flex", borderBottom: "1px solid #e1e3e5", marginBottom: "24px" }}>
             <button style={tabStyle(activeTab === "earning")}    onClick={() => setActiveTab("earning")}>Earning Rules</button>
             <button style={tabStyle(activeTab === "redemption")} onClick={() => setActiveTab("redemption")}>Redemption</button>
             <button style={tabStyle(activeTab === "style")}      onClick={() => setActiveTab("style")}>Widget Style</button>
           </div>
 
-          {/* Banners */}
           {showSuccess && (
             <div style={{ background: "#EAF3DE", border: "1px solid #97C459", borderRadius: "8px", padding: "12px 16px", marginBottom: "20px", color: "#3B6D11", fontSize: "14px" }}>
               ✓ Settings saved successfully.
@@ -213,10 +210,10 @@ export default function SettingsPage() {
             <s-stack direction="block" gap="large-400">
               <div>
                 <div style={{ fontWeight: 600, marginBottom: "6px" }}>Points per currency unit</div>
-                <div style={{ fontSize: "13px", color: "#666", marginBottom: "10px" }}>How many points a customer earns per $1 spent.</div>
+                <div style={{ fontSize: "13px", color: "#666", marginBottom: "10px" }}>How many points a customer earns per 1 {currency} spent.</div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <input ref={ppcRef} type="number" defaultValue={settings.pointsPerCurrency} min={0.1} step={0.1} style={{ ...inputStyle, width: "120px" }} />
-                  <span style={{ fontSize: "13px", color: "#888" }}>pts per 1 currency unit</span>
+                  <span style={{ fontSize: "13px", color: "#888" }}>pts per 1 {currency}</span>
                 </div>
               </div>
               <div>
@@ -229,7 +226,7 @@ export default function SettingsPage() {
               </div>
               <div style={{ background: "#F6F6F7", borderRadius: "8px", padding: "12px 16px", fontSize: "13px", color: "#444" }}>
                 <strong>Formula:</strong> <code>floor(orderAmount × pointsPerCurrency × tierMultiplier)</code><br />
-                <span style={{ color: "#888" }}>Example: $50 order · 10 pts/$1 · Gold 1.5× = <strong>750 pts</strong></span>
+                <span style={{ color: "#888" }}>Example: {formatCurrency(50, currency)} order · 10 pts/{currency} · Gold 1.5× = <strong>750 pts</strong></span>
               </div>
               {[
                 { ref: bronzeRef, emoji: "🥉", label: "Bronze multiplier", color: "#D85A30", note: "(base rate)", val: settings.bronzeMultiplier },
@@ -255,28 +252,33 @@ export default function SettingsPage() {
           {/* ── REDEMPTION TAB ── */}
           {activeTab === "redemption" && (
             <s-stack direction="block" gap="large-400">
-
-              {/* Rates */}
               <div>
                 <div style={{ fontWeight: 600, fontSize: "15px", marginBottom: "4px" }}>Redemption rates</div>
                 <div style={{ fontSize: "13px", color: "#666", marginBottom: "16px" }}>
-                  How many points are required per $1 of discount. Lower = better value for the customer.
+                  How many points equal 1 {currency} of discount. Lower = better value for customer.
                 </div>
                 {[
-                  { ref: bronzeRateRef, emoji: "🥉", label: "Bronze rate", color: "#D85A30", val: settings.bronzeRedemptionRate },
-                  { ref: silverRateRef, emoji: "🥈", label: "Silver rate", color: "#5F5E5A", val: settings.silverRedemptionRate },
-                  { ref: goldRateRef,   emoji: "🥇", label: "Gold rate",   color: "#BA7517", val: settings.goldRedemptionRate   },
-                ].map(({ ref, emoji, label, color, val }) => (
+                  { ref: bronzeRateRef, emoji: "🥉", label: "Bronze rate", color: "#D85A30", val: bronzeRate, set: (v: number) => { setBronzeRate(v); } },
+                  { ref: silverRateRef, emoji: "🥈", label: "Silver rate", color: "#5F5E5A", val: silverRate, set: (v: number) => { setSilverRate(v); } },
+                  { ref: goldRateRef,   emoji: "🥇", label: "Gold rate",   color: "#BA7517", val: goldRate,   set: (v: number) => { setGoldRate(v); }   },
+                ].map(({ ref, emoji, label, color, val, set }) => (
                   <div key={label} style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
                     <span style={{ fontSize: "18px" }}>{emoji}</span>
                     <strong style={{ color, minWidth: "110px" }}>{label}</strong>
-                    <input ref={ref} type="number" defaultValue={val} min={1} step={1} style={{ ...inputStyle, width: "90px" }} />
-                    <span style={{ fontSize: "13px", color: "#888" }}>pts = $1</span>
+                    <input
+                      ref={ref}
+                      type="number"
+                      value={val}
+                      min={1}
+                      step={1}
+                      onChange={(e) => set(Number(e.target.value) || 1)}
+                      style={{ ...inputStyle, width: "90px" }}
+                    />
+                    <span style={{ fontSize: "13px", color: "#888" }}>pts = 1 {currency}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Voucher presets */}
               <div>
                 <div style={{ fontWeight: 600, fontSize: "15px", marginBottom: "4px" }}>Voucher presets</div>
                 <div style={{ fontSize: "13px", color: "#666", marginBottom: "16px" }}>
@@ -284,44 +286,51 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
                   {[
-                    { ref: preset1Ref, label: "Small voucher", val: settings.voucherPreset1, rate: bronzeRate },
-                    { ref: preset2Ref, label: "Medium voucher", val: settings.voucherPreset2, rate: bronzeRate },
-                    { ref: preset3Ref, label: "Large voucher", val: settings.voucherPreset3, rate: bronzeRate },
-                  ].map(({ ref, label, val, rate }) => (
-                    <div key={label} style={{ background: "#f9f9f9", borderRadius: "8px", padding: "14px 16px", minWidth: "140px" }}>
-                      <div style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>{label}</div>
+                    { ref: preset1Ref, label: "Small",  val: p1, set: setP1 },
+                    { ref: preset2Ref, label: "Medium", val: p2, set: setP2 },
+                    { ref: preset3Ref, label: "Large",  val: p3, set: setP3 },
+                  ].map(({ ref, label, val, set }) => (
+                    <div key={label} style={{ background: "#f9f9f9", borderRadius: "8px", padding: "14px 16px", minWidth: "150px" }}>
+                      <div style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>{label} voucher</div>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <input ref={ref} type="number" defaultValue={val} min={1} step={50}
-                          style={{ ...inputStyle, width: "90px" }} />
+                        <input
+                          ref={ref}
+                          type="number"
+                          value={val}
+                          min={1}
+                          step={50}
+                          onChange={(e) => set(Number(e.target.value) || 1)}
+                          style={{ ...inputStyle, width: "90px" }}
+                        />
                         <span style={{ fontSize: "13px", color: "#888" }}>pts</span>
                       </div>
-                      <div style={{ fontSize: "11px", color: "#aaa", marginTop: "6px" }}>
-                        Bronze: ${(val / rate).toFixed(2)} off
+                      <div style={{ fontSize: "11px", color: "#666", marginTop: "6px" }}>
+                        Bronze: {formatCurrency(val / bronzeRate, currency)}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Preview table */}
-              <div style={{ background: "#F6F6F7", borderRadius: "8px", padding: "16px", fontSize: "13px" }}>
-                <div style={{ fontWeight: 600, marginBottom: "10px" }}>Discount value preview</div>
+              {/* Live preview table */}
+              <div style={{ background: "#F6F6F7", borderRadius: "8px", padding: "16px" }}>
+                <div style={{ fontWeight: 600, marginBottom: "10px", fontSize: "13px" }}>Discount value preview ({currency})</div>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
                     <tr style={{ color: "#888" }}>
-                      <th style={{ textAlign: "left", paddingBottom: "6px" }}>Points</th>
-                      <th style={{ textAlign: "right", paddingBottom: "6px" }}>🥉 Bronze</th>
-                      <th style={{ textAlign: "right", paddingBottom: "6px" }}>🥈 Silver</th>
-                      <th style={{ textAlign: "right", paddingBottom: "6px" }}>🥇 Gold</th>
+                      <th style={{ textAlign: "left",  paddingBottom: "8px" }}>Points</th>
+                      <th style={{ textAlign: "right", paddingBottom: "8px" }}>🥉 Bronze</th>
+                      <th style={{ textAlign: "right", paddingBottom: "8px" }}>🥈 Silver</th>
+                      <th style={{ textAlign: "right", paddingBottom: "8px" }}>🥇 Gold</th>
                     </tr>
                   </thead>
                   <tbody>
                     {[p1, p2, p3].map((pts) => (
                       <tr key={pts} style={{ borderTop: "1px solid #e8e8e8" }}>
-                        <td style={{ padding: "6px 0", fontWeight: 600 }}>{pts.toLocaleString()} pts</td>
-                        <td style={{ textAlign: "right", padding: "6px 0" }}>${(pts / bronzeRate).toFixed(2)}</td>
-                        <td style={{ textAlign: "right", padding: "6px 0" }}>${(pts / silverRate).toFixed(2)}</td>
-                        <td style={{ textAlign: "right", padding: "6px 0", color: "#BA7517", fontWeight: 600 }}>${(pts / goldRate).toFixed(2)}</td>
+                        <td style={{ padding: "8px 0", fontWeight: 600 }}>{pts.toLocaleString()} pts</td>
+                        <td style={{ textAlign: "right", padding: "8px 0" }}>{formatCurrency(pts / bronzeRate, currency)}</td>
+                        <td style={{ textAlign: "right", padding: "8px 0" }}>{formatCurrency(pts / silverRate, currency)}</td>
+                        <td style={{ textAlign: "right", padding: "8px 0", color: "#BA7517", fontWeight: 600 }}>{formatCurrency(pts / goldRate, currency)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -336,11 +345,11 @@ export default function SettingsPage() {
           {activeTab === "style" && (
             <div style={{ display: "flex", gap: "40px", alignItems: "flex-start", flexWrap: "wrap" }}>
               <div style={{ flex: "1", minWidth: "280px" }}>
-                <ColorField label="Accent color"      desc="Progress bar, highlights, badges."       value={accentColor}     onChange={setAccentColor} />
-                <ColorField label="Card background"   desc="Background of the widget card."          value={bgColor}         onChange={setBgColor} />
-                <ColorField label="Text color"        desc="Primary text on the widget."             value={textColor}       onChange={setTextColor} />
-                <ColorField label="Button color"      desc="CTA button background."                  value={buttonColor}     onChange={setButtonColor} />
-                <ColorField label="Button text color" desc="Text on the CTA button."                 value={buttonTextColor} onChange={setButtonTextColor} />
+                <ColorField label="Accent color"      desc="Progress bar, highlights, badges."  value={accentColor}     onChange={setAccentColor} />
+                <ColorField label="Card background"   desc="Background of the widget card."     value={bgColor}         onChange={setBgColor} />
+                <ColorField label="Text color"        desc="Primary text on the widget."        value={textColor}       onChange={setTextColor} />
+                <ColorField label="Button color"      desc="CTA button background."             value={buttonColor}     onChange={setButtonColor} />
+                <ColorField label="Button text color" desc="Text on the CTA button."            value={buttonTextColor} onChange={setButtonTextColor} />
                 <div style={{ marginBottom: "24px" }}>
                   <div style={{ fontWeight: 600, marginBottom: "4px" }}>Border radius</div>
                   <div style={{ fontSize: "13px", color: "#666", marginBottom: "8px" }}>Corner rounding on cards (px).</div>
@@ -352,7 +361,6 @@ export default function SettingsPage() {
                 </div>
                 <s-button variant="primary" onClick={handleSaveStyle} {...(isSaving ? { loading: true } : {})}>{isSaving ? "Saving…" : "Save style"}</s-button>
               </div>
-              {/* Preview */}
               <div style={{ flex: "1", minWidth: "260px" }}>
                 <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>Live preview</div>
                 <div style={{ background: bgColor, borderRadius: `${borderRadius}px`, padding: "28px 24px", fontFamily: "'DM Sans', sans-serif", boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}>
@@ -368,19 +376,17 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
-
         </s-card>
       </s-section>
 
-      {/* Points lifecycle */}
       <s-section heading="Points lifecycle">
         <s-card>
           <s-stack direction="block" gap="large-300">
             {[
-              { icon: "🛒", label: "Order paid",     desc: "Points awarded as Pending — visible but not spendable." },
-              { icon: "📦", label: "Order fulfilled", desc: "Pending points become Active — customer can now spend them." },
-              { icon: "❌", label: "Order cancelled", desc: "Pending points voided; Active points deducted." },
-              { icon: "🎟️", label: "Points redeemed", desc: "Customer redeems points for a one-time discount code (30-day expiry)." },
+              { icon: "🛒", label: "Order paid",      desc: "Points awarded as Pending — visible but not spendable." },
+              { icon: "📦", label: "Order fulfilled",  desc: "Pending points become Active — customer can now spend them." },
+              { icon: "❌", label: "Order cancelled",  desc: "Pending points voided; Active points deducted." },
+              { icon: "🎟️", label: "Points redeemed",  desc: `Customer redeems points for a one-time ${currency} discount code (30-day expiry).` },
             ].map(({ icon, label, desc }) => (
               <div key={label} style={{ display: "flex", gap: "12px", alignItems: "flex-start", padding: "10px 0", borderBottom: "0.5px solid #eee" }}>
                 <span style={{ fontSize: "20px", flexShrink: 0 }}>{icon}</span>

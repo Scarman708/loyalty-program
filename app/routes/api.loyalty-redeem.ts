@@ -1,5 +1,4 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { getLoyaltySettings, calculateRedemptionValue } from "../services/loyaltySettings.server";
 
@@ -20,7 +19,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   try {
-    const body       = await request.json();
+    const body = await request.json();
     const { shop, customerId, pointsToRedeem } = body;
 
     if (!shop || !customerId || !pointsToRedeem) {
@@ -37,68 +36,61 @@ export async function action({ request }: ActionFunctionArgs) {
       where: { shop_shopifyCustomerId: { shop, shopifyCustomerId: String(customerId) } },
     });
 
-    if (!customer) {
-      return json({ error: "Customer not found" }, 404);
-    }
-
-    if (customer.points < points) {
-      return json({ error: "Insufficient points" }, 400);
-    }
+    if (!customer)              return json({ error: "Customer not found" }, 404);
+    if (customer.points < points) return json({ error: "Insufficient points" }, 400);
 
     // ── Calculate discount value ──────────────────────────────────────────
-    const settings      = await getLoyaltySettings(shop);
+    const settings       = await getLoyaltySettings(shop);
     const discountAmount = calculateRedemptionValue(points, customer.tier, settings);
+    const code           = generateCode();
 
-    // ── Generate unique discount code ─────────────────────────────────────
-    const code = generateCode(shop, customerId);
+    // ── Get admin client via offline session ──────────────────────────────
+    const { unauthenticated } = await import("../shopify.server");
+    const { admin } = await unauthenticated.admin(shop);
 
-    // ── Create Shopify discount code via GraphQL ──────────────────────────
-    // We need an authenticated admin client — get it via offline session
-    const { admin } = await getAdminForShop(shop);
-
-    const expiresAt = new Date();
+    const expiresAt    = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
     const expiresAtISO = expiresAt.toISOString();
 
-    const mutation = `
-      mutation CreateDiscount($input: DiscountCodeBasicInput!) {
+    // ── Create Shopify discount code ──────────────────────────────────────
+    // Uses discountCodeBasicCreate with fixed amount, one-time use, 30-day expiry
+    // customerSelection removed — deprecated in API 2025-10+
+    const gqlRes = await admin.graphql(`
+      mutation CreateLoyaltyDiscount($input: DiscountCodeBasicInput!) {
         discountCodeBasicCreate(basicCodeDiscount: $input) {
           codeDiscountNode {
             id
-            codeDiscount {
-              ... on DiscountCodeBasic {
-                title
-                codes(first: 1) { nodes { code } }
-              }
-            }
           }
-          userErrors { field message }
+          userErrors { field message code }
         }
       }
-    `;
-
-    const variables = {
-      input: {
-        title:  `LOYALTY-${code}`,
-        code,
-        startsAt: new Date().toISOString(),
-        endsAt:   expiresAtISO,
-        usageLimit: 1,
-        customerSelection: { all: true },
-        customerGets: {
-          value: { discountAmount: { amount: String(discountAmount), appliesOnEachItem: false } },
-          items: { all: true },
+    `, {
+      variables: {
+        input: {
+          title:      `Loyalty Reward — ${code}`,
+          code,
+          startsAt:   new Date().toISOString(),
+          endsAt:     expiresAtISO,
+          usageLimit: 1,
+          appliesOncePerCustomer: true,
+          customerGets: {
+            value: {
+              discountAmount: {
+                amount:             String(discountAmount),
+                appliesOnEachItem:  false,
+              },
+            },
+            items: { all: true },
+          },
         },
-        appliesOncePerCustomer: true,
       },
-    };
+    });
 
-    const gqlRes  = await admin.graphql(mutation, { variables });
-    const gqlData = await gqlRes.json();
+    const gqlData    = await gqlRes.json();
     const userErrors = gqlData.data?.discountCodeBasicCreate?.userErrors ?? [];
 
     if (userErrors.length > 0) {
-      console.error("[api.loyalty-redeem] Shopify discount errors:", userErrors);
+      console.error("[api.loyalty-redeem] Shopify userErrors:", userErrors);
       return json({ error: "Failed to create discount code", details: userErrors }, 500);
     }
 
@@ -112,10 +104,10 @@ export async function action({ request }: ActionFunctionArgs) {
         data: {
           shop,
           customerId: customer.id,
-          type:   "redeem",
-          points: -points,
-          status: "active",
-          note:   `Redeemed ${points} pts for $${discountAmount} voucher (${code})`,
+          type:       "redeem",
+          points:     -points,
+          status:     "active",
+          note:       `Redeemed ${points} pts → $${discountAmount} voucher (${code})`,
         },
       }),
       db.redemptionVoucher.create({
@@ -131,18 +123,17 @@ export async function action({ request }: ActionFunctionArgs) {
       }),
     ]);
 
-    console.log(`[api.loyalty-redeem] ${customer.shopifyCustomerId} redeemed ${points} pts → $${discountAmount} code ${code}`);
+    console.log(`[api.loyalty-redeem] ${customer.shopifyCustomerId} redeemed ${points} pts → $${discountAmount} (${code})`);
 
-    // Return updated balance for live UI update
     const updated = await db.loyaltyCustomer.findUnique({ where: { id: customer.id } });
 
     return json({
-      success:       true,
+      success:        true,
       code,
       discountAmount,
-      pointsUsed:    points,
-      expiresAt:     expiresAtISO,
-      newBalance:    updated?.points ?? (customer.points - points),
+      pointsUsed:     points,
+      expiresAt:      expiresAtISO,
+      newBalance:     updated?.points ?? (customer.points - points),
     }, 201);
 
   } catch (err: any) {
@@ -151,20 +142,12 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: corsHeaders });
 }
 
-function generateCode(shop: string, customerId: string): string {
+function generateCode(): string {
   const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
   const ts   = Date.now().toString(36).toUpperCase().slice(-4);
   return `LYL-${rand}${ts}`;
-}
-
-// Get admin client using stored offline session
-async function getAdminForShop(shop: string) {
-  const { unauthenticated } = await import("../shopify.server");
-  return unauthenticated.admin(shop);
 }

@@ -13,7 +13,7 @@ api_version = "2026-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_customers,read_customers,write_orders,read_orders,read_products,write_products,write_themes,write_content,read_themes"
+scopes = "write_customers,read_customers,write_orders,read_orders,read_products,write_products,write_themes,write_content,read_themes,write_discounts"
 
 [auth]
 redirect_urls = [ "https://loyalty-program-orjg.onrender.com/api/auth" ]
