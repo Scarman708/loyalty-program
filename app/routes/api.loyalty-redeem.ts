@@ -49,53 +49,38 @@ export async function action({ request }: ActionFunctionArgs) {
     expiresAt.setDate(expiresAt.getDate() + 30);
     const expiresAtISO = expiresAt.toISOString();
 
-    // Use discountAutomaticBasicCreate is not right either.
-    // discountCodeBasicCreate with correct 2025-10 shape:
-    // - customerGets requires "items" with "all: true" AND "value"
-    // - minimumRequirement must be set (use none via minimumSubtotalAmount = 0)
     const gqlRes = await admin.graphql(`
-      mutation CreateLoyaltyDiscount(
-        $title: String!
-        $code: String!
-        $startsAt: DateTime!
-        $endsAt: DateTime!
-        $amount: Decimal!
-      ) {
-        discountCodeBasicCreate(basicCodeDiscount: {
-          title: $title
-          code: $code
-          startsAt: $startsAt
-          endsAt: $endsAt
-          usageLimit: 1
-          appliesOncePerCustomer: true
-          minimumRequirement: {
-            subtotal: {
-              greaterThanOrEqualToSubtotal: "0.00"
-            }
-          }
-          customerGets: {
-            value: {
-              discountAmount: {
-                amount: $amount
-                appliesOnEachItem: false
-              }
-            }
-            items: {
-              all: true
-            }
-          }
-        }) {
+      mutation CreateLoyaltyDiscount($basicCodeDiscount: DiscountCodeBasicInput!) {
+        discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
           codeDiscountNode { id }
           userErrors { field message code }
         }
       }
     `, {
       variables: {
-        title:    `Loyalty Reward — ${code}`,
-        code,
-        startsAt: new Date().toISOString(),
-        endsAt:   expiresAtISO,
-        amount:   String(discountAmount),
+        basicCodeDiscount: {
+          title:    `Loyalty Reward — ${code}`,
+          code,
+          startsAt: new Date().toISOString(),
+          endsAt:   expiresAtISO,
+          usageLimit: 1,
+          appliesOncePerCustomer: true,
+          customerSelection: { all: true },
+          customerGets: {
+            value: {
+              discountAmount: {
+                amount:            String(discountAmount),
+                appliesOnEachItem: false,
+              },
+            },
+            items: { all: true },
+          },
+          minimumRequirement: {
+            subtotal: {
+              greaterThanOrEqualToSubtotal: "1.00",
+            },
+          },
+        },
       },
     });
 
