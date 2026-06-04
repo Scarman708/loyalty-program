@@ -185,15 +185,6 @@ export default function SettingsPage() {
     borderBottomWidth: "2px", borderBottomStyle: "solid",
     borderBottomColor: active ? "#0d0d0d" : "transparent",
   });
-
-  // Preview discount values
-  const bronzeRate = Number(settings.bronzeRedemptionRate ?? 100);
-  const silverRate = Number(settings.silverRedemptionRate ?? 90);
-  const goldRate   = Number(settings.goldRedemptionRate   ?? 80);
-  const p1         = Number(settings.voucherPreset1 ?? 500);
-  const p2         = Number(settings.voucherPreset2 ?? 1000);
-  const p3         = Number(settings.voucherPreset3 ?? 2000);
-
   return (
     <s-page heading="Loyalty Settings">
       <s-section>
