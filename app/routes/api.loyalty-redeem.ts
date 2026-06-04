@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { getLoyaltySettings, calculateRedemptionValue } from "../services/loyaltySettings.server";
 
@@ -31,20 +31,17 @@ export async function action({ request }: ActionFunctionArgs) {
       return json({ error: "Invalid pointsToRedeem value" }, 400);
     }
 
-    // ── Load customer ─────────────────────────────────────────────────────
     const customer = await db.loyaltyCustomer.findUnique({
       where: { shop_shopifyCustomerId: { shop, shopifyCustomerId: String(customerId) } },
     });
 
-    if (!customer)              return json({ error: "Customer not found" }, 404);
+    if (!customer)                return json({ error: "Customer not found" }, 404);
     if (customer.points < points) return json({ error: "Insufficient points" }, 400);
 
-    // ── Calculate discount value ──────────────────────────────────────────
     const settings       = await getLoyaltySettings(shop);
     const discountAmount = calculateRedemptionValue(points, customer.tier, settings);
     const code           = generateCode();
 
-    // ── Get admin client via offline session ──────────────────────────────
     const { unauthenticated } = await import("../shopify.server");
     const { admin } = await unauthenticated.admin(shop);
 
@@ -52,46 +49,54 @@ export async function action({ request }: ActionFunctionArgs) {
     expiresAt.setDate(expiresAt.getDate() + 30);
     const expiresAtISO = expiresAt.toISOString();
 
-    // ── Create Shopify discount code ──────────────────────────────────────
-    // Uses discountCodeBasicCreate with fixed amount, one-time use, 30-day expiry
-    // customerSelection removed — deprecated in API 2025-10+
+    // Use discountAutomaticBasicCreate is not right either.
+    // discountCodeBasicCreate with correct 2025-10 shape:
+    // - customerGets requires "items" with "all: true" AND "value"
+    // - minimumRequirement must be set (use none via minimumSubtotalAmount = 0)
     const gqlRes = await admin.graphql(`
-      mutation CreateLoyaltyDiscount($input: DiscountCodeBasicInput!) {
-        discountCodeBasicCreate(basicCodeDiscount: $input) {
-          codeDiscountNode {
-            id
+      mutation CreateLoyaltyDiscount(
+        $title: String!
+        $code: String!
+        $startsAt: DateTime!
+        $endsAt: DateTime!
+        $amount: Decimal!
+      ) {
+        discountCodeBasicCreate(basicCodeDiscount: {
+          title: $title
+          code: $code
+          startsAt: $startsAt
+          endsAt: $endsAt
+          usageLimit: 1
+          appliesOncePerCustomer: true
+          minimumRequirement: {
+            subtotal: {
+              greaterThanOrEqualToSubtotal: "0.00"
+            }
           }
+          customerGets: {
+            value: {
+              discountAmount: {
+                amount: $amount
+                appliesOnEachItem: false
+              }
+            }
+            items: {
+              all: true
+            }
+          }
+        }) {
+          codeDiscountNode { id }
           userErrors { field message code }
         }
       }
     `, {
       variables: {
-  input: {
-    title:      `Loyalty Reward — ${code}`,
-    code,
-    startsAt:   new Date().toISOString(),
-    endsAt:     expiresAtISO,
-    usageLimit: 1,
-    appliesOncePerCustomer: true,
-
-    // NEW: required in latest APIs
-    context: {
-      customerSelection: {
-        all: true,      // or various segment-based / customer-specific rules
+        title:    `Loyalty Reward — ${code}`,
+        code,
+        startsAt: new Date().toISOString(),
+        endsAt:   expiresAtISO,
+        amount:   String(discountAmount),
       },
-    },
-
-    customerGets: {
-      value: {
-        discountAmount: {
-          amount:             String(discountAmount),
-          appliesOnEachItem:  false,
-        },
-      },
-      items: { all: true },
-    },
-  },
-},
     });
 
     const gqlData    = await gqlRes.json();
@@ -102,7 +107,6 @@ export async function action({ request }: ActionFunctionArgs) {
       return json({ error: "Failed to create discount code", details: userErrors }, 500);
     }
 
-    // ── Deduct points + save voucher in DB ────────────────────────────────
     await db.$transaction([
       db.loyaltyCustomer.update({
         where: { id: customer.id },
@@ -115,7 +119,7 @@ export async function action({ request }: ActionFunctionArgs) {
           type:       "redeem",
           points:     -points,
           status:     "active",
-          note:       `Redeemed ${points} pts → $${discountAmount} voucher (${code})`,
+          note:       `Redeemed ${points} pts → ${discountAmount} voucher (${code})`,
         },
       }),
       db.redemptionVoucher.create({
@@ -131,7 +135,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }),
     ]);
 
-    console.log(`[api.loyalty-redeem] ${customer.shopifyCustomerId} redeemed ${points} pts → $${discountAmount} (${code})`);
+    console.log(`[api.loyalty-redeem] ${customer.shopifyCustomerId} redeemed ${points} pts → ${discountAmount} (${code})`);
 
     const updated = await db.loyaltyCustomer.findUnique({ where: { id: customer.id } });
 
