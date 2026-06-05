@@ -3,6 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useRef, useState } from "react";
 import { authenticate } from "../shopify.server";
 import { getLoyaltySettings, saveLoyaltySettings } from "../services/loyaltySettings.server";
+import { getTierConfig, saveTierConfig } from "../services/tierService";
 
 declare global {
   namespace JSX { interface IntrinsicElements { [elemName: string]: any; } }
@@ -11,13 +12,14 @@ declare global {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const settings = await getLoyaltySettings(session.shop);
+  const tierConfig = await getTierConfig(session.shop);
 
   // Fetch store currency
   const res      = await admin.graphql(`query { shop { currencyCode } }`);
   const data     = await res.json();
   const currency = data.data?.shop?.currencyCode ?? "USD";
 
-  return { settings, currency };
+  return { settings, currency, tierConfig };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -29,6 +31,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const tab     = raw.tab as string;
   const current = await getLoyaltySettings(session.shop);
+
+  if (tab === "tiers") {
+    const bronze = Number(raw.bronze);
+    const silver = Number(raw.silver);
+    const gold   = Number(raw.gold);
+
+    const errors: string[] = [];
+    if (bronze !== 0)       errors.push("Bronze threshold must be 0 (it's the entry tier).");
+    if (silver <= bronze)   errors.push("Silver threshold must be greater than Bronze.");
+    if (gold   <= silver)   errors.push("Gold threshold must be greater than Silver.");
+    if (silver > 1_000_000) errors.push("Silver threshold seems unreasonably high.");
+    if (gold   > 1_000_000) errors.push("Gold threshold seems unreasonably high.");
+    if (errors.length) return { ok: false, errors, tab: "tiers" };
+
+    await saveTierConfig(session.shop, { bronze, silver, gold });
+    return { ok: true, errors: [], tab: "tiers" };
+  }
 
   if (tab === "style") {
     await saveLoyaltySettings(session.shop, {
@@ -69,6 +88,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { ok: true, errors: [], tab: "redemption" };
   }
 
+  // tab === "earning" (default)
   const pointsPerCurrency = Number(raw.pointsPerCurrency);
   const orderAmountType   = raw.orderAmountType as "subtotal" | "total";
   const bronzeMultiplier  = Number(raw.bronzeMultiplier);
@@ -86,6 +106,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   await saveLoyaltySettings(session.shop, { ...current, pointsPerCurrency, orderAmountType, bronzeMultiplier, silverMultiplier, goldMultiplier });
   return { ok: true, errors: [], tab: "earning" };
 };
+
+const TIER_META = {
+  bronze: { label: "Bronze", emoji: "🥉", description: "Entry tier — all new members start here.", color: "#D85A30", bg: "#FFF4F0" },
+  silver: { label: "Silver", emoji: "🥈", description: "Mid tier — unlocked after reaching the Silver threshold.", color: "#5F5E5A", bg: "#F5F5F4" },
+  gold:   { label: "Gold",   emoji: "🥇", description: "Top tier — your most loyal customers.", color: "#BA7517", bg: "#FFFBF0" },
+} as const;
 
 const inputStyle: React.CSSProperties = { padding: "8px 12px", border: "1px solid #ccc", borderRadius: "6px", fontSize: "14px" };
 
@@ -105,7 +131,6 @@ function ColorField({ label, desc, value, onChange }: { label: string; desc: str
   );
 }
 
-// Format a number as store currency
 function formatCurrency(amount: number, currency: string): string {
   try {
     return new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 2 }).format(amount);
@@ -115,27 +140,21 @@ function formatCurrency(amount: number, currency: string): string {
 }
 
 export default function SettingsPage() {
-  const { settings, currency } = useLoaderData<typeof loader>();
+  const { settings, currency, tierConfig } = useLoaderData<typeof loader>();
   const fetcher  = useFetcher<typeof action>();
   const isSaving = fetcher.state !== "idle";
   const result   = fetcher.data;
 
-  const [activeTab, setActiveTab] = useState<"earning"|"redemption"|"style">("earning");
+  const [activeTab, setActiveTab] = useState<"earning" | "redemption" | "tiers" | "style">("earning");
 
+  // Earning refs
   const ppcRef    = useRef<HTMLInputElement>(null);
   const oatRef    = useRef<HTMLSelectElement>(null);
   const bronzeRef = useRef<HTMLInputElement>(null);
   const silverRef = useRef<HTMLInputElement>(null);
   const goldRef   = useRef<HTMLInputElement>(null);
 
-  const bronzeRateRef = useRef<HTMLInputElement>(null);
-  const silverRateRef = useRef<HTMLInputElement>(null);
-  const goldRateRef   = useRef<HTMLInputElement>(null);
-  const preset1Ref    = useRef<HTMLInputElement>(null);
-  const preset2Ref    = useRef<HTMLInputElement>(null);
-  const preset3Ref    = useRef<HTMLInputElement>(null);
-
-  // Redemption live state — drives the preview table
+  // Redemption state
   const [bronzeRate, setBronzeRate] = useState(settings.bronzeRedemptionRate ?? 100);
   const [silverRate, setSilverRate] = useState(settings.silverRedemptionRate ?? 80);
   const [goldRate,   setGoldRate]   = useState(settings.goldRedemptionRate   ?? 60);
@@ -143,6 +162,11 @@ export default function SettingsPage() {
   const [p2, setP2] = useState(settings.voucherPreset2 ?? 1000);
   const [p3, setP3] = useState(settings.voucherPreset3 ?? 2000);
 
+  // Tiers refs
+  const tierSilverRef = useRef<HTMLInputElement>(null);
+  const tierGoldRef   = useRef<HTMLInputElement>(null);
+
+  // Style state
   const [accentColor,     setAccentColor]     = useState(settings.accentColor     ?? "#d4a017");
   const [bgColor,         setBgColor]         = useState(settings.bgColor         ?? "#0d0d0d");
   const [textColor,       setTextColor]       = useState(settings.textColor       ?? "#ffffff");
@@ -165,6 +189,13 @@ export default function SettingsPage() {
     silverRedemptionRate: silverRate,
     goldRedemptionRate:   goldRate,
     voucherPreset1: p1, voucherPreset2: p2, voucherPreset3: p3,
+  }, { method: "POST", encType: "application/json" });
+
+  const handleSaveTiers = () => fetcher.submit({
+    tab: "tiers",
+    bronze: 0,
+    silver: Number(tierSilverRef.current?.value ?? tierConfig.silver),
+    gold:   Number(tierGoldRef.current?.value   ?? tierConfig.gold),
   }, { method: "POST", encType: "application/json" });
 
   const handleSaveStyle = () => fetcher.submit(
@@ -191,6 +222,7 @@ export default function SettingsPage() {
           <div style={{ display: "flex", borderBottom: "1px solid #e1e3e5", marginBottom: "24px" }}>
             <button style={tabStyle(activeTab === "earning")}    onClick={() => setActiveTab("earning")}>Earning Rules</button>
             <button style={tabStyle(activeTab === "redemption")} onClick={() => setActiveTab("redemption")}>Redemption</button>
+            <button style={tabStyle(activeTab === "tiers")}      onClick={() => setActiveTab("tiers")}>Tiers</button>
             <button style={tabStyle(activeTab === "style")}      onClick={() => setActiveTab("style")}>Widget Style</button>
           </div>
 
@@ -258,15 +290,14 @@ export default function SettingsPage() {
                   How many points equal 1 {currency} of discount. Lower = better value for customer.
                 </div>
                 {[
-                  { ref: bronzeRateRef, emoji: "🥉", label: "Bronze rate", color: "#D85A30", val: bronzeRate, set: (v: number) => { setBronzeRate(v); } },
-                  { ref: silverRateRef, emoji: "🥈", label: "Silver rate", color: "#5F5E5A", val: silverRate, set: (v: number) => { setSilverRate(v); } },
-                  { ref: goldRateRef,   emoji: "🥇", label: "Gold rate",   color: "#BA7517", val: goldRate,   set: (v: number) => { setGoldRate(v); }   },
-                ].map(({ ref, emoji, label, color, val, set }) => (
+                  { emoji: "🥉", label: "Bronze rate", color: "#D85A30", val: bronzeRate, set: setBronzeRate },
+                  { emoji: "🥈", label: "Silver rate", color: "#5F5E5A", val: silverRate, set: setSilverRate },
+                  { emoji: "🥇", label: "Gold rate",   color: "#BA7517", val: goldRate,   set: setGoldRate   },
+                ].map(({ emoji, label, color, val, set }) => (
                   <div key={label} style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
                     <span style={{ fontSize: "18px" }}>{emoji}</span>
                     <strong style={{ color, minWidth: "110px" }}>{label}</strong>
                     <input
-                      ref={ref}
                       type="number"
                       value={val}
                       min={1}
@@ -286,15 +317,14 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
                   {[
-                    { ref: preset1Ref, label: "Small",  val: p1, set: setP1 },
-                    { ref: preset2Ref, label: "Medium", val: p2, set: setP2 },
-                    { ref: preset3Ref, label: "Large",  val: p3, set: setP3 },
-                  ].map(({ ref, label, val, set }) => (
+                    { label: "Small",  val: p1, set: setP1 },
+                    { label: "Medium", val: p2, set: setP2 },
+                    { label: "Large",  val: p3, set: setP3 },
+                  ].map(({ label, val, set }) => (
                     <div key={label} style={{ background: "#f9f9f9", borderRadius: "8px", padding: "14px 16px", minWidth: "150px" }}>
                       <div style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>{label} voucher</div>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <input
-                          ref={ref}
                           type="number"
                           value={val}
                           min={1}
@@ -338,6 +368,114 @@ export default function SettingsPage() {
               </div>
 
               <div><s-button variant="primary" onClick={handleSaveRedemption} {...(isSaving ? { loading: true } : {})}>{isSaving ? "Saving…" : "Save redemption settings"}</s-button></div>
+            </s-stack>
+          )}
+
+          {/* ── TIERS TAB ── */}
+          {activeTab === "tiers" && (
+            <s-stack direction="block" gap="large-400">
+              <div>
+                <s-text>
+                  Tiers are based on <strong>lifetime points earned</strong> — they never
+                  drop when a customer redeems points. When a customer crosses a threshold,
+                  their tier is updated and synced to their Shopify customer
+                  metafield (<code>loyalty.tier</code>).
+                </s-text>
+              </div>
+
+              {/* Tier cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
+                {(["bronze", "silver", "gold"] as const).map((t) => {
+                  const meta = TIER_META[t];
+                  return (
+                    <div key={t} style={{ background: meta.bg, border: `1px solid ${meta.color}40`, borderRadius: "8px", padding: "16px" }}>
+                      <div style={{ fontSize: "28px", marginBottom: "8px" }}>{meta.emoji}</div>
+                      <div style={{ fontWeight: 600, color: meta.color, marginBottom: "4px" }}>{meta.label}</div>
+                      <div style={{ fontSize: "13px", color: "#555" }}>{meta.description}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Bronze — read only */}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: "15px", marginBottom: "12px" }}>Configure thresholds</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "20px" }}>🥉</span>
+                  <strong style={{ color: TIER_META.bronze.color }}>Bronze</strong>
+                  <span style={{ fontSize: "13px", color: "#888" }}>— entry tier, always starts at 0</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
+                  <input
+                    type="number"
+                    value={0}
+                    readOnly
+                    style={{ width: "160px", padding: "8px 12px", border: "1px solid #ddd", borderRadius: "6px", background: "#f5f5f5", color: "#888", fontSize: "14px" }}
+                  />
+                  <span style={{ fontSize: "13px", color: "#888" }}>lifetime pts</span>
+                </div>
+
+                {/* Silver */}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "20px" }}>🥈</span>
+                  <strong style={{ color: TIER_META.silver.color }}>Silver starts at</strong>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
+                  <input
+                    ref={tierSilverRef}
+                    type="number"
+                    defaultValue={tierConfig.silver}
+                    min={1}
+                    max={999999}
+                    style={{ ...inputStyle, width: "160px" }}
+                  />
+                  <span style={{ fontSize: "13px", color: "#888" }}>lifetime pts</span>
+                </div>
+
+                {/* Gold */}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "20px" }}>🥇</span>
+                  <strong style={{ color: TIER_META.gold.color }}>Gold starts at</strong>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input
+                    ref={tierGoldRef}
+                    type="number"
+                    defaultValue={tierConfig.gold}
+                    min={2}
+                    max={1000000}
+                    style={{ ...inputStyle, width: "160px" }}
+                  />
+                  <span style={{ fontSize: "13px", color: "#888" }}>lifetime pts</span>
+                </div>
+              </div>
+
+              {/* Storefront usage */}
+              <div style={{ background: "#F6F6F7", borderRadius: "8px", padding: "16px" }}>
+                <div style={{ fontWeight: 600, marginBottom: "8px", fontSize: "13px" }}>Using tiers in your storefront</div>
+                <div style={{ fontSize: "13px", color: "#555", marginBottom: "10px" }}>
+                  When a tier changes, it's written to the customer metafield <code>loyalty.tier</code>. Use it in Liquid:
+                </div>
+                <div style={{ background: "#1e1e2e", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "13px", color: "#cdd6f4", overflowX: "auto" }}>
+                  <span style={{ color: "#89b4fa" }}>{`{% assign`}</span>
+                  {` tier = customer.metafields.loyalty.tier.value `}
+                  <span style={{ color: "#89b4fa" }}>{`%}`}</span>
+                  <br />
+                  <span style={{ color: "#89b4fa" }}>{`{% if`}</span>
+                  {` tier == `}
+                  <span style={{ color: "#a6e3a1" }}>"gold"</span>
+                  {` `}
+                  <span style={{ color: "#89b4fa" }}>{`%}`}</span>
+                  <br />
+                  {"  "}<span style={{ color: "#f38ba8" }}>{`<p>`}</span>
+                  {`You're a Gold member! 🥇`}
+                  <span style={{ color: "#f38ba8" }}>{`</p>`}</span>
+                  <br />
+                  <span style={{ color: "#89b4fa" }}>{`{% endif %}`}</span>
+                </div>
+              </div>
+
+              <div><s-button variant="primary" onClick={handleSaveTiers} {...(isSaving ? { loading: true } : {})}>{isSaving ? "Saving…" : "Save thresholds"}</s-button></div>
             </s-stack>
           )}
 
