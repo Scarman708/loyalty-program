@@ -8,8 +8,6 @@ declare global {
   namespace JSX { interface IntrinsicElements { [elemName: string]: any; } }
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 type TierName = "Bronze" | "Silver" | "Gold";
 
 // ── Loader ────────────────────────────────────────────────────────────────────
@@ -20,7 +18,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [allCustomers, transactions30d, recentRaw] = await Promise.all([
+  const [allCustomersRaw, transactions30d, recentRaw] = await Promise.all([
     db.loyaltyCustomer.findMany({
       orderBy: { lifetimePoints: "desc" },
       select: {
@@ -33,6 +31,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         lastName: true,
         email: true,
         createdAt: true,
+        // Include transactions and vouchers so the modal has real data
+        transactions: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true, type: true, points: true, note: true,
+            status: true, createdAt: true, orderName: true,
+          },
+        },
+        vouchers: {
+          select: {
+            id: true, code: true, discountAmount: true,
+            pointsUsed: true, status: true, expiresAt: true,
+          },
+        },
       },
     }),
     db.pointTransaction.findMany({
@@ -50,9 +62,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
-  const totalMembers       = allCustomers.length;
-  const newMembers30d      = allCustomers.filter((c) => c.createdAt >= thirtyDaysAgo).length;
-  const outstandingBalance = allCustomers.reduce((s, c) => s + c.points, 0);
+  const totalMembers       = allCustomersRaw.length;
+  const newMembers30d      = allCustomersRaw.filter((c) => c.createdAt >= thirtyDaysAgo).length;
+  const outstandingBalance = allCustomersRaw.reduce((s, c) => s + c.points, 0);
 
   let pointsIssued30d = 0, pointsRedeemed30d = 0;
   for (const t of transactions30d) {
@@ -60,7 +72,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     else                                           pointsRedeemed30d += t.points;
   }
 
-  const topCustomers = allCustomers.slice(0, 5).map((c) => ({
+  const topCustomers = allCustomersRaw.slice(0, 5).map((c) => ({
     shopifyCustomerId: c.shopifyCustomerId,
     totalPoints: c.points,
     name: [c.firstName, c.lastName].filter(Boolean).join(" ") || null,
@@ -80,7 +92,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const dailyStats = Array.from(dayMap.entries()).map(([date, v]) => ({ date, ...v }));
 
   const tierCounts = { Gold: 0, Silver: 0, Bronze: 0 };
-  for (const c of allCustomers) {
+  for (const c of allCustomersRaw) {
     const t = c.lifetimePoints >= 2000 ? "Gold" : c.lifetimePoints >= 500 ? "Silver" : "Bronze";
     tierCounts[t]++;
   }
@@ -96,6 +108,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     customerName: t.customer
       ? [t.customer.firstName, t.customer.lastName].filter(Boolean).join(" ") || null
       : null,
+  }));
+
+  // Strip nested relations for the table-level data to keep payload lighter,
+  // but keep full data (with transactions + vouchers) for the modal.
+  const allCustomers = allCustomersRaw.map((c) => ({
+    id: c.id,
+    shopifyCustomerId: c.shopifyCustomerId,
+    points: c.points,
+    lifetimePoints: c.lifetimePoints,
+    tier: c.tier,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    email: c.email,
+    createdAt: c.createdAt,
+    transactions: c.transactions,
+    vouchers: c.vouchers,
   }));
 
   return {
@@ -440,7 +468,6 @@ export default function AnalyticsPage() {
 
   const PAGE_SIZE = 10;
 
-  // Filter + paginate customers
   const filtered = data.allCustomers.filter((c) => {
     if (!searchQ) return true;
     const q = searchQ.toLowerCase();
@@ -452,18 +479,13 @@ export default function AnalyticsPage() {
     );
   });
 
-  const totalPages   = Math.ceil(filtered.length / PAGE_SIZE);
+  const totalPages    = Math.ceil(filtered.length / PAGE_SIZE);
   const pageCustomers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  const openDetail = async (c: any) => {
-    // Load full customer with transactions + vouchers via fetcher
-    const res = await fetch(`/app/customers?_data=routes%2Fapp.customers&customerId=${c.id}&q=`).catch(() => null);
-    if (res?.ok) {
-      const d = await res.json().catch(() => null);
-      if (d?.selected) { setDetailCustomer(d.selected); return; }
-    }
-    // Fallback — open with what we have
-    setDetailCustomer({ ...c, transactions: [], vouchers: [] });
+  // Opens the modal with the full customer object (transactions + vouchers already included from loader)
+  const openDetail = (c: any) => {
+    setSelectedCustomer(c);
+    setDetailCustomer(c);
   };
 
   const totalForTier = data.tierStats.reduce((s, t) => s + t.count, 0) || 1;
@@ -479,10 +501,10 @@ export default function AnalyticsPage() {
       <s-section heading="Last 30 days">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
           {[
-            { label: "Total members",      value: fmtNum(data.totalMembers),       sub: `+${data.newMembers30d} new this month` },
-            { label: "Points issued",      value: fmtNum(data.pointsIssued30d),    sub: "This period" },
-            { label: "Points redeemed",    value: fmtNum(data.pointsRedeemed30d),  sub: "This period" },
-            { label: "Outstanding balance",value: fmtNum(data.outstandingBalance), sub: "Across all members" },
+            { label: "Total members",       value: fmtNum(data.totalMembers),       sub: `+${data.newMembers30d} new this month` },
+            { label: "Points issued",       value: fmtNum(data.pointsIssued30d),    sub: "This period" },
+            { label: "Points redeemed",     value: fmtNum(data.pointsRedeemed30d),  sub: "This period" },
+            { label: "Outstanding balance", value: fmtNum(data.outstandingBalance), sub: "Across all members" },
           ].map(({ label, value, sub }) => (
             <s-card key={label}>
               <s-stack direction="block" gap="large-200">
@@ -588,7 +610,6 @@ export default function AnalyticsPage() {
       {/* ── Members list ── */}
       <s-section heading="All members">
         <s-card>
-          {/* Search */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
             <input
               type="text"
@@ -602,7 +623,6 @@ export default function AnalyticsPage() {
             </span>
           </div>
 
-          {/* Table header */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px 120px 160px", gap: "8px",
             padding: "8px 12px", background: "#f9f9f9", borderRadius: "6px", marginBottom: "4px",
             fontSize: "11px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -613,7 +633,6 @@ export default function AnalyticsPage() {
             <div style={{ textAlign: "center" }}>Actions</div>
           </div>
 
-          {/* Rows */}
           {pageCustomers.length === 0 ? (
             <div style={{ textAlign: "center", padding: "32px 0", color: "#aaa", fontSize: "14px" }}>
               {searchQ ? `No customers match "${searchQ}"` : "No members yet."}
@@ -623,7 +642,7 @@ export default function AnalyticsPage() {
             return (
               <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px 120px 160px",
                 gap: "8px", padding: "10px 12px", alignItems: "center",
-                borderTop: i === 0 ? "1px solid #f0f0f0" : "1px solid #f0f0f0",
+                borderTop: "1px solid #f0f0f0",
                 background: selectedCustomer?.id === c.id ? "#f0f4ff" : "transparent",
               }}>
                 <div>
@@ -635,13 +654,13 @@ export default function AnalyticsPage() {
                 <div style={{ textAlign: "right", fontSize: "13px", color: "#666" }}>{fmtNum(c.lifetimePoints)}</div>
                 <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
                   <button
-                    onClick={() => { setSelectedCustomer(c); setDetailCustomer({ ...c, transactions: [], vouchers: [] }); }}
+                    onClick={() => openDetail(c)}
                     style={{ padding: "5px 10px", fontSize: "12px", fontWeight: 600, borderRadius: "5px",
                       border: "1px solid #d4a017", background: "#fefae6", color: "#92630a", cursor: "pointer" }}>
                     ✏️ Adjust
                   </button>
                   <button
-                    onClick={() => { setSelectedCustomer(c); openDetail(c); }}
+                    onClick={() => openDetail(c)}
                     style={{ padding: "5px 10px", fontSize: "12px", fontWeight: 600, borderRadius: "5px",
                       border: "1px solid #c7d7ff", background: "#f0f4ff", color: "#1d4ed8", cursor: "pointer" }}>
                     👁 Details
@@ -651,7 +670,6 @@ export default function AnalyticsPage() {
             );
           })}
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", paddingTop: "16px", marginTop: "8px", borderTop: "1px solid #f0f0f0" }}>
               <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
@@ -668,7 +686,6 @@ export default function AnalyticsPage() {
         </s-card>
       </s-section>
 
-      {/* ── Customer detail modal ── */}
       {detailCustomer && (
         <CustomerModal
           customer={detailCustomer}
