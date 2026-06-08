@@ -41,6 +41,7 @@ export async function awardSignupBonus(
   if (signupBonus <= 0) return;
 
   await db.$transaction([
+    // Award points to referee
     db.loyaltyCustomer.update({
       where: { id: refereeId },
       data: {
@@ -58,6 +59,25 @@ export async function awardSignupBonus(
         note:   `Referral signup bonus — ${signupBonus} pts`,
       },
     }),
+    // Award same points to referrer
+    db.loyaltyCustomer.update({
+      where: { id: referrerId },
+      data: {
+        points:        { increment: signupBonus },
+        lifetimePoints: { increment: signupBonus },
+      },
+    }),
+    db.pointTransaction.create({
+      data: {
+        shop,
+        customerId: referrerId,
+        type:   "earn",
+        points: signupBonus,
+        status: "active",
+        note:   `Referral signup bonus — your referee joined (+${signupBonus} pts)`,
+      },
+    }),
+    // Create referral relationship
     db.referralRelationship.create({
       data: {
         shop,
@@ -70,9 +90,8 @@ export async function awardSignupBonus(
     }),
   ]);
 
-  console.log(`[referral] Signup bonus: ${signupBonus} pts → referee ${refereeId}`);
+  console.log(`[referral] Signup bonus: ${signupBonus} pts → referee ${refereeId} + referrer ${referrerId}`);
 }
-
 // ── Award order bonus to both parties ────────────────────────────────────
 export async function awardOrderBonus(
   shop: string,
