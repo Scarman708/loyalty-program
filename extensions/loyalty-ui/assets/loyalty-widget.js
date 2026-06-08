@@ -209,41 +209,79 @@ const REF_CODE = new URLSearchParams(window.location.search).get("ref") || null;
   }
 
   // ── Render: Signup ─────────────────────────────────────────────────────────
-  function renderSignup(container, onEnrolled) {
-    container.innerHTML = `
-      <div class="lw-root">
-        <div class="lw-signup">
-          <div class="lw-signup-badge">✦ New — Loyalty Program</div>
-          <h2>Earn rewards on<br><em>every purchase</em></h2>
-          <p>Join thousands of members earning points, unlocking tiers, and getting exclusive perks.</p>
-          <div class="lw-perks">
-            <div class="lw-perk"><span class="lw-perk-icon">⭐</span>Earn points</div>
-            <div class="lw-perk"><span class="lw-perk-icon">🎯</span>Unlock tiers</div>
-            <div class="lw-perk"><span class="lw-perk-icon">🎁</span>Get rewards</div>
-          </div>
-          <button class="lw-btn lw-btn-primary" id="lw-join-btn">Join for free</button>
-          <p class="lw-signup-note">No credit card needed. Instant enrollment.</p>
-        </div>
-      </div>`;
+ // ── Render: Signup ─────────────────────────────────────────────────────────
+function renderSignup(container, onEnrolled) {
+  const refCode = new URLSearchParams(window.location.search).get("ref") || "";
 
-    document.getElementById("lw-join-btn").addEventListener("click", async function () {
-      const btn = this;
-      btn.disabled = true; btn.textContent = "Joining...";
-      try {
-        const res  = await fetch(`${APP_URL}/api/loyalty-signup`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shop: SHOP, customerId: CUSTOMER_ID,
-            email: window.__LOYALTY_CUSTOMER_EMAIL__ || null,
-            firstName: window.__LOYALTY_CUSTOMER_FIRST_NAME__ || null,
-            lastName:  window.__LOYALTY_CUSTOMER_LAST_NAME__  || null }),
-            referralCode: REF_CODE,  
-        });
-        const data = await res.json();
-        if (data.success) { onEnrolled(); }
-        else { btn.disabled = false; btn.textContent = "Try again"; }
-      } catch(e) { btn.disabled = false; btn.textContent = "Try again"; }
-    });
-  }
+  container.innerHTML = `
+    <div class="lw-root">
+      <div class="lw-signup">
+        <div class="lw-signup-badge">✦ New — Loyalty Program</div>
+        <h2>Earn rewards on<br><em>every purchase</em></h2>
+        <p>Join thousands of members earning points, unlocking tiers, and getting exclusive perks.</p>
+        <div class="lw-perks">
+          <div class="lw-perk"><span class="lw-perk-icon">⭐</span>Earn points</div>
+          <div class="lw-perk"><span class="lw-perk-icon">🎯</span>Unlock tiers</div>
+          <div class="lw-perk"><span class="lw-perk-icon">🎁</span>Get rewards</div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-size:12px;font-weight:600;color:color-mix(in srgb,var(--lw-text) 55%,transparent);margin-bottom:8px;letter-spacing:0.05em;text-transform:uppercase;">
+            Referral Code <span style="font-weight:400;opacity:0.6;">(optional)</span>
+          </label>
+          <input
+            id="lw-referral-input"
+            type="text"
+            placeholder="Enter referral code"
+            value="${refCode}"
+            style="
+              width:100%;box-sizing:border-box;
+              background:color-mix(in srgb,var(--lw-text) 8%,transparent);
+              border:1px solid color-mix(in srgb,var(--lw-text) 18%,transparent);
+              border-radius:10px;padding:12px 14px;
+              font-size:14px;font-family:'DM Sans',sans-serif;
+              color:var(--lw-text);outline:none;
+              transition:border-color 0.15s;
+            "
+          />
+        </div>
+        <button class="lw-btn lw-btn-primary" id="lw-join-btn">Join for free</button>
+        <p class="lw-signup-note">No credit card needed. Instant enrollment.</p>
+      </div>
+    </div>`;
+
+  // Focus style on input
+  const input = document.getElementById("lw-referral-input");
+  input.addEventListener("focus", function () {
+    this.style.borderColor = "var(--lw-accent)";
+  });
+  input.addEventListener("blur", function () {
+    this.style.borderColor = "color-mix(in srgb,var(--lw-text) 18%,transparent)";
+  });
+
+  document.getElementById("lw-join-btn").addEventListener("click", async function () {
+    const btn = this;
+    const referralCode = document.getElementById("lw-referral-input").value.trim() || null;
+
+    btn.disabled = true; btn.textContent = "Joining...";
+    try {
+      const res = await fetch(`${APP_URL}/api/loyalty-signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop:         SHOP,
+          customerId:   CUSTOMER_ID,
+          email:        window.__LOYALTY_CUSTOMER_EMAIL__      || null,
+          firstName:    window.__LOYALTY_CUSTOMER_FIRST_NAME__ || null,
+          lastName:     window.__LOYALTY_CUSTOMER_LAST_NAME__  || null,
+          referralCode: referralCode,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) { onEnrolled(); }
+      else { btn.disabled = false; btn.textContent = "Try again"; }
+    } catch(e) { btn.disabled = false; btn.textContent = "Try again"; }
+  });
+}
 
   // ── Render: Dashboard ─────────────────────────────────────────────────────
   function renderDashboard(container, data) {
