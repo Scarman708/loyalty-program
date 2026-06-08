@@ -1,47 +1,46 @@
-// app/services/referral.server.ts
-// All referral logic in one place
-
 import db from "../db.server";
-import type { LoyaltySettingsData } from "./loyaltySettings.server";
 
-// ── Generate referral code from shopifyCustomerId ─────────────────────────────
-// Deterministic — same input always gives same code
+// ── Generate referral code — hash based on shopifyCustomerId ──────────────
 export function generateReferralCode(shop: string, shopifyCustomerId: string): string {
-  // Use the END of the string so the unique customer ID dominates, not the shop prefix.
-  // Mix shop + customerId chars together for better uniqueness.
-  const raw = `${shopifyCustomerId}-${shop}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  // Take last 12 chars — customerId is at the start so it ends up in the slice
-  // after reversal, giving each customer a unique code.
-  const reversed = raw.split("").reverse().join("");
-  return reversed.slice(0, 12);
+  const id = shopifyCustomerId.replace(/\D/g, "");
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let n = parseInt(id.slice(-10), 10) || parseInt(id, 10) || 1;
+  let code = "";
+  for (let i = 0; i < 8; i++) {
+    code += chars[n % chars.length];
+    n = Math.floor(n / chars.length) + (i + 1) * 7919;
+  }
+  return code;
 }
 
-// ── Find customer by referral code ────────────────────────────────────────────
+// ── Find customer by referral code ────────────────────────────────────────
 export async function findCustomerByReferralCode(
   shop: string,
   code: string,
 ): Promise<{ id: string; shopifyCustomerId: string } | null> {
-  // Code is derived from shopifyCustomerId — scan customers and match
   const customers = await db.loyaltyCustomer.findMany({
     where: { shop },
     select: { id: true, shopifyCustomerId: true },
   });
 
-  return customers.find((c) => generateReferralCode(shop, c.shopifyCustomerId) === code) ?? null;
+  return (
+    customers.find(
+      (c) => generateReferralCode(shop, c.shopifyCustomerId) === code.toUpperCase().trim()
+    ) ?? null
+  );
 }
 
-// ── Award signup bonus to referee ─────────────────────────────────────────────
+// ── Award signup bonus to referee ─────────────────────────────────────────
 export async function awardSignupBonus(
   shop: string,
-  referrerId: string,        // LoyaltyCustomer.id
-  refereeId: string,         // LoyaltyCustomer.id
+  referrerId: string,
+  refereeId: string,
   referralCode: string,
   signupBonus: number,
 ): Promise<void> {
   if (signupBonus <= 0) return;
 
   await db.$transaction([
-    // Award points to referee
     db.loyaltyCustomer.update({
       where: { id: refereeId },
       data: {
@@ -49,7 +48,6 @@ export async function awardSignupBonus(
         lifetimePoints: { increment: signupBonus },
       },
     }),
-    // Record transaction for referee
     db.pointTransaction.create({
       data: {
         shop,
@@ -60,7 +58,6 @@ export async function awardSignupBonus(
         note:   `Referral signup bonus — ${signupBonus} pts`,
       },
     }),
-    // Create referral relationship
     db.referralRelationship.create({
       data: {
         shop,
@@ -76,29 +73,23 @@ export async function awardSignupBonus(
   console.log(`[referral] Signup bonus: ${signupBonus} pts → referee ${refereeId}`);
 }
 
-// ── Award order bonus to both parties ────────────────────────────────────────
-// Called on referee's first completed order
+// ── Award order bonus to both parties ────────────────────────────────────
 export async function awardOrderBonus(
   shop: string,
-  referral: {
-    id: string;
-    referrerId: string;
-    refereeId: string;
-  },
-  baseOrderPoints: number,    // points earned from the order itself
-  referrerPct: number,        // e.g. 10 = 10%
+  referral: { id: string; referrerId: string; refereeId: string },
+  baseOrderPoints: number,
+  referrerPct: number,
   refereePct: number,
 ): Promise<void> {
   const referrerBonus = Math.floor(baseOrderPoints * (referrerPct / 100));
   const refereeBonus  = Math.floor(baseOrderPoints * (refereePct  / 100));
 
   const ops: any[] = [
-    // Mark referral complete
     db.referralRelationship.update({
       where: { id: referral.id },
       data: {
-        status:          "completed",
-        orderBonusPaid:  true,
+        status:           "completed",
+        orderBonusPaid:   true,
         referrerBonusPts: referrerBonus,
         refereeBonusPts:  refereeBonus,
       },
@@ -138,18 +129,17 @@ export async function awardOrderBonus(
   }
 
   await db.$transaction(ops);
-
   console.log(`[referral] Order bonus: referrer +${referrerBonus} pts, referee +${refereeBonus} pts`);
 }
 
-// ── Check if this is the referee's first order ────────────────────────────────
+// ── Check if this is the referee's first order ────────────────────────────
 export async function isFirstOrder(shop: string, customerId: string): Promise<boolean> {
   const count = await db.pointTransaction.count({
     where: {
       shop,
       customerId,
-      type:   "earn",
-      status: { in: ["active", "pending"] },
+      type:    "earn",
+      status:  { in: ["active", "pending"] },
       orderId: { not: null },
     },
   });
