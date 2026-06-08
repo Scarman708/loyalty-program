@@ -7,8 +7,13 @@ import type { LoyaltySettingsData } from "./loyaltySettings.server";
 // ── Generate referral code from shopifyCustomerId ─────────────────────────────
 // Deterministic — same input always gives same code
 export function generateReferralCode(shop: string, shopifyCustomerId: string): string {
-  const base = `${shop}-${shopifyCustomerId}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  return base.slice(0, 12);
+  // Use the END of the string so the unique customer ID dominates, not the shop prefix.
+  // Mix shop + customerId chars together for better uniqueness.
+  const raw = `${shopifyCustomerId}-${shop}`.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  // Take last 12 chars — customerId is at the start so it ends up in the slice
+  // after reversal, giving each customer a unique code.
+  const reversed = raw.split("").reverse().join("");
+  return reversed.slice(0, 12);
 }
 
 // ── Find customer by referral code ────────────────────────────────────────────

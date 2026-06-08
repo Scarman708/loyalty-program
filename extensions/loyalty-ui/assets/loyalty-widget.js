@@ -5,6 +5,8 @@
   const APP_URL    = window.__LOYALTY_APP_URL__ || (_root && _root.dataset.appUrl) || "";
   const SHOP       = window.__LOYALTY_SHOP__    || (Shopify && Shopify.shop) || "";
   const CUSTOMER_ID = window.__LOYALTY_CUSTOMER_ID__ || null;
+// ✅ ADD THIS — read referral code from ?ref= URL param once on load
+const REF_CODE = new URLSearchParams(window.location.search).get("ref") || null;
 
   const TIER_ICONS = { bronze: "🥉", silver: "🥈", gold: "🥇" };
   const TIER_HERO  = {
@@ -234,6 +236,7 @@
             email: window.__LOYALTY_CUSTOMER_EMAIL__ || null,
             firstName: window.__LOYALTY_CUSTOMER_FIRST_NAME__ || null,
             lastName:  window.__LOYALTY_CUSTOMER_LAST_NAME__  || null }),
+            referralCode: REF_CODE,  
         });
         const data = await res.json();
         if (data.success) { onEnrolled(); }
