@@ -10,7 +10,7 @@
   const SHOP = window.__LOYALTY_SHOP__ || Shopify.shop;
   const CUSTOMER_ID = window.__LOYALTY_CUSTOMER_ID__ || null;
   const DASHBOARD_URL = "/pages/loyalty-rewards";
-
+  const REF_CODE = new URLSearchParams(window.location.search).get("ref") || null;
   // ── Inject styles ────────────────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById("loyalty-cta-styles")) return;
@@ -281,6 +281,7 @@
             email: window.__LOYALTY_CUSTOMER_EMAIL__ || null,
             firstName: window.__LOYALTY_CUSTOMER_FIRST_NAME__ || null,
             lastName: window.__LOYALTY_CUSTOMER_LAST_NAME__ || null,
+            referralCode: REF_CODE,
           }),
         });
 
