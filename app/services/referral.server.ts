@@ -79,10 +79,8 @@ export async function awardOrderBonus(
   referral: { id: string; referrerId: string; refereeId: string },
   baseOrderPoints: number,
   referrerPct: number,
-  refereePct: number,
 ): Promise<void> {
   const referrerBonus = Math.floor(baseOrderPoints * (referrerPct / 100));
-  const refereeBonus  = Math.floor(baseOrderPoints * (refereePct  / 100));
 
   const ops: any[] = [
     db.referralRelationship.update({
@@ -91,7 +89,7 @@ export async function awardOrderBonus(
         status:           "completed",
         orderBonusPaid:   true,
         referrerBonusPts: referrerBonus,
-        refereeBonusPts:  refereeBonus,
+        refereeBonusPts:  0,
       },
     }),
   ];
@@ -100,38 +98,27 @@ export async function awardOrderBonus(
     ops.push(
       db.loyaltyCustomer.update({
         where: { id: referral.referrerId },
-        data: { points: { increment: referrerBonus }, lifetimePoints: { increment: referrerBonus } },
-      }),
-      db.pointTransaction.create({
         data: {
-          shop, customerId: referral.referrerId,
-          type: "earn", points: referrerBonus, status: "active",
-          note: `Referral bonus — your referee made their first purchase (+${referrerBonus} pts)`,
+          points:        { increment: referrerBonus },
+          lifetimePoints: { increment: referrerBonus },
         },
       }),
-    );
-  }
-
-  if (refereeBonus > 0) {
-    ops.push(
-      db.loyaltyCustomer.update({
-        where: { id: referral.refereeId },
-        data: { points: { increment: refereeBonus }, lifetimePoints: { increment: refereeBonus } },
-      }),
       db.pointTransaction.create({
         data: {
-          shop, customerId: referral.refereeId,
-          type: "earn", points: refereeBonus, status: "active",
-          note: `Referral bonus — first purchase bonus (+${refereeBonus} pts)`,
+          shop,
+          customerId: referral.referrerId,
+          type:   "earn",
+          points: referrerBonus,
+          status: "active",
+          note:   `Referral bonus — your referee made their first purchase (+${referrerBonus} pts)`,
         },
       }),
     );
   }
 
   await db.$transaction(ops);
-  console.log(`[referral] Order bonus: referrer +${referrerBonus} pts, referee +${refereeBonus} pts`);
+  console.log(`[referral] Order bonus: referrer +${referrerBonus} pts only`);
 }
-
 // ── Check if this is the referee's first order ────────────────────────────
 export async function isFirstOrder(shop: string, customerId: string): Promise<boolean> {
   const count = await db.pointTransaction.count({

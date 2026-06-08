@@ -107,7 +107,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           { id: referral.id, referrerId: referral.referrerId, refereeId: referral.refereeId },
           points,
           settings.referralReferrerPct,
-          settings.referralRefereePct,
+          
         );
         console.log(`[orders-paid] Referral order bonus awarded for referral ${referral.id}`);
       }
