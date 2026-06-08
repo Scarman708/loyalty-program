@@ -48,9 +48,33 @@ model LoyaltyCustomer {
 
   transactions      PointTransaction[]
   vouchers          RedemptionVoucher[]
+  referrerRelations ReferralRelationship[] @relation("ReferrerRelations")
+  refereeRelation   ReferralRelationship?  @relation("RefereeRelations")
 
   @@unique([shop, shopifyCustomerId])
   @@index([shop])
+}
+
+model ReferralRelationship {
+  id          String   @id @default(cuid())
+  shop        String
+  referrerId  String                        // LoyaltyCustomer.id who shared the code
+  refereeId   String   @unique              // LoyaltyCustomer.id who used the code
+  referralCode String                       // the code that was used
+  status      String   @default("pending")  // pending | signup_bonus_paid | completed | voided
+  // Points tracking
+  signupBonusPaid    Boolean  @default(false)
+  orderBonusPaid     Boolean  @default(false)
+  referrerBonusPts   Int?                   // pts awarded to referrer after order
+  refereeBonusPts    Int?                   // pts awarded to referee after order
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  referrer    LoyaltyCustomer @relation("ReferrerRelations", fields: [referrerId], references: [id])
+  referee     LoyaltyCustomer @relation("RefereeRelations",  fields: [refereeId],  references: [id])
+
+  @@index([shop, referrerId])
+  @@index([referralCode])
 }
 
 model PointTransaction {
@@ -98,30 +122,35 @@ model TierConfig {
 }
 
 model LoyaltySettings {
-  id                String   @id @default(cuid())
-  shop              String   @unique
+  id                   String   @id @default(cuid())
+  shop                 String   @unique
 
-  pointsPerCurrency Float    @default(10)
-  orderAmountType   String   @default("subtotal")
-  bronzeMultiplier  Float    @default(1.0)
-  silverMultiplier  Float    @default(1.25)
-  goldMultiplier    Float    @default(1.5)
+  pointsPerCurrency    Float    @default(10)
+  orderAmountType      String   @default("subtotal")
+  bronzeMultiplier     Float    @default(1.0)
+  silverMultiplier     Float    @default(1.25)
+  goldMultiplier       Float    @default(1.5)
 
-  bronzeRedemptionRate  Float  @default(100)
-  silverRedemptionRate  Float  @default(80)
-  goldRedemptionRate    Float  @default(60)
+  bronzeRedemptionRate Float    @default(100)
+  silverRedemptionRate Float    @default(80)
+  goldRedemptionRate   Float    @default(60)
 
-  voucherPreset1    Int    @default(500)
-  voucherPreset2    Int    @default(1000)
-  voucherPreset3    Int    @default(2000)
+  voucherPreset1       Int      @default(500)
+  voucherPreset2       Int      @default(1000)
+  voucherPreset3       Int      @default(2000)
 
-  accentColor       String @default("#d4a017")
-  bgColor           String @default("#0d0d0d")
-  textColor         String @default("#ffffff")
-  buttonColor       String @default("#d4a017")
-  buttonTextColor   String @default("#0d0d0d")
-  borderRadius      Int    @default(16)
+  // Referral settings
+  referralSignupBonus  Int      @default(100)  // pts to referee on signup
+  referralReferrerPct  Float    @default(10)   // % of referee's first order pts to referrer
+  referralRefereePct   Float    @default(10)   // % of referee's first order pts to referee (bonus)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  accentColor          String   @default("#d4a017")
+  bgColor              String   @default("#0d0d0d")
+  textColor            String   @default("#ffffff")
+  buttonColor          String   @default("#d4a017")
+  buttonTextColor      String   @default("#0d0d0d")
+  borderRadius         Int      @default(16)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }

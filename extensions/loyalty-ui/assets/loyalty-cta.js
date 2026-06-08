@@ -17,7 +17,7 @@
     const style = document.createElement("style");
     style.id = "loyalty-cta-styles";
     style.textContent = `
-      @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600&display=swap');
+
 
       .lc-root {
         font-family: 'DM Sans', sans-serif;

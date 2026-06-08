@@ -244,7 +244,9 @@
 
   // ── Render: Dashboard ─────────────────────────────────────────────────────
   function renderDashboard(container, data) {
-    const { customer, tierProgress, transactions, referralCode, vouchers = [], redemptionPresets = [] } = data;
+    const { customer, tierProgress, transactions, vouchers = [], redemptionPresets = [] } = data;
+    const referral     = data.referral || {};
+    const referralCode = referral.code || '';
     const tier = customer.tier || "bronze";
     const hero = TIER_HERO[tier] || TIER_HERO.bronze;
     const icon = TIER_ICONS[tier] || "🥉";
@@ -355,11 +357,28 @@
             <div class="lw-referral-card">
               <div class="lw-referral-label">Refer & Earn</div>
               <div class="lw-referral-title">Share your code,<br>both of you win</div>
-              <div class="lw-referral-sub">Share your unique code with friends. When they join and make their first purchase, you both earn bonus points.</div>
+              <div class="lw-referral-sub">
+                ${referral.signupBonus ? `Your friend gets <strong style="color:var(--lw-accent)">${referral.signupBonus} pts</strong> on signup. ` : ''}
+                ${referral.referrerPct ? `You both earn <strong style="color:var(--lw-accent)">${referral.referrerPct}%</strong> bonus on their first order.` : ''}
+              </div>
+              ${referral.totalReferrals != null ? `
+              <div style="display:flex;gap:16px;margin-bottom:18px;">
+                <div style="text-align:center;">
+                  <div style="font-size:22px;font-weight:700;color:var(--lw-accent)">${referral.totalReferrals}</div>
+                  <div style="font-size:11px;color:color-mix(in srgb,var(--lw-text) 50%,transparent)">Referred</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-size:22px;font-weight:700;color:var(--lw-accent)">${referral.completedReferrals || 0}</div>
+                  <div style="font-size:11px;color:color-mix(in srgb,var(--lw-text) 50%,transparent)">Completed</div>
+                </div>
+              </div>` : ''}
               <div class="lw-referral-code-row">
                 <div class="lw-code-box">${referralCode}</div>
                 <button class="lw-copy-btn" id="lw-copy-referral">Copy</button>
               </div>
+              <button class="lw-copy-btn" id="lw-share-btn" style="margin-top:8px;width:100%;border-radius:8px;padding:10px;">
+                🔗 Copy share link
+              </button>
             </div>
           </div>
         </div>
@@ -380,6 +399,13 @@
       navigator.clipboard.writeText(referralCode).then(() => {
         this.textContent = "Copied!"; this.classList.add("copied");
         setTimeout(() => { this.textContent = "Copy"; this.classList.remove("copied"); }, 2000);
+      });
+    });
+    document.getElementById("lw-share-btn")?.addEventListener("click", function () {
+      const shareUrl = `${window.location.origin}/pages/loyalty-rewards?ref=${encodeURIComponent(referralCode)}`;
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        this.textContent = "✓ Link copied!"; this.classList.add("copied");
+        setTimeout(() => { this.textContent = "🔗 Copy share link"; this.classList.remove("copied"); }, 2000);
       });
     });
 

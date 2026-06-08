@@ -6,12 +6,15 @@ export interface LoyaltySettingsData {
   bronzeMultiplier:     number;
   silverMultiplier:     number;
   goldMultiplier:       number;
-  bronzeRedemptionRate: number; // pts per $1
+  bronzeRedemptionRate: number;
   silverRedemptionRate: number;
   goldRedemptionRate:   number;
-  voucherPreset1:       number; // in points
+  voucherPreset1:       number;
   voucherPreset2:       number;
   voucherPreset3:       number;
+  referralSignupBonus:  number;  // pts to referee on signup
+  referralReferrerPct:  number;  // % of referee's first order pts → referrer
+  referralRefereePct:   number;  // % of referee's first order pts → referee (bonus)
   accentColor:          string;
   bgColor:              string;
   textColor:            string;
@@ -32,6 +35,9 @@ const DEFAULTS: LoyaltySettingsData = {
   voucherPreset1:       500,
   voucherPreset2:       1000,
   voucherPreset3:       2000,
+  referralSignupBonus:  100,
+  referralReferrerPct:  10,
+  referralRefereePct:   10,
   accentColor:          "#d4a017",
   bgColor:              "#0d0d0d",
   textColor:            "#ffffff",
@@ -49,12 +55,15 @@ export async function getLoyaltySettings(shop: string): Promise<LoyaltySettingsD
       bronzeMultiplier:     row.bronzeMultiplier,
       silverMultiplier:     row.silverMultiplier,
       goldMultiplier:       row.goldMultiplier,
-      bronzeRedemptionRate: (row as any).bronzeRedemptionRate ?? DEFAULTS.bronzeRedemptionRate,
-      silverRedemptionRate: (row as any).silverRedemptionRate ?? DEFAULTS.silverRedemptionRate,
-      goldRedemptionRate:   (row as any).goldRedemptionRate   ?? DEFAULTS.goldRedemptionRate,
-      voucherPreset1:       (row as any).voucherPreset1       ?? DEFAULTS.voucherPreset1,
-      voucherPreset2:       (row as any).voucherPreset2       ?? DEFAULTS.voucherPreset2,
-      voucherPreset3:       (row as any).voucherPreset3       ?? DEFAULTS.voucherPreset3,
+      bronzeRedemptionRate: row.bronzeRedemptionRate,
+      silverRedemptionRate: row.silverRedemptionRate,
+      goldRedemptionRate:   row.goldRedemptionRate,
+      voucherPreset1:       row.voucherPreset1,
+      voucherPreset2:       row.voucherPreset2,
+      voucherPreset3:       row.voucherPreset3,
+      referralSignupBonus:  (row as any).referralSignupBonus  ?? DEFAULTS.referralSignupBonus,
+      referralReferrerPct:  (row as any).referralReferrerPct  ?? DEFAULTS.referralReferrerPct,
+      referralRefereePct:   (row as any).referralRefereePct   ?? DEFAULTS.referralRefereePct,
       accentColor:          (row as any).accentColor          ?? DEFAULTS.accentColor,
       bgColor:              (row as any).bgColor              ?? DEFAULTS.bgColor,
       textColor:            (row as any).textColor            ?? DEFAULTS.textColor,
@@ -67,10 +76,7 @@ export async function getLoyaltySettings(shop: string): Promise<LoyaltySettingsD
   return DEFAULTS;
 }
 
-export async function saveLoyaltySettings(
-  shop: string,
-  data: LoyaltySettingsData,
-): Promise<void> {
+export async function saveLoyaltySettings(shop: string, data: LoyaltySettingsData): Promise<void> {
   await db.loyaltySettings.upsert({
     where:  { shop },
     create: { shop, ...data },
@@ -90,7 +96,6 @@ export function calculatePoints(
   return Math.floor(orderAmount * settings.pointsPerCurrency * multiplier);
 }
 
-// How many $ a given point amount is worth for a tier
 export function calculateRedemptionValue(
   points: number,
   customerTier: string,

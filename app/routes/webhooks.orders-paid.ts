@@ -4,6 +4,7 @@ import db from "../db.server";
 import { getOrCreateLoyaltyCustomer } from "../services/points.server";
 import { getLoyaltySettings, calculatePoints } from "../services/loyaltySettings.server";
 import { evaluateAndUpdateTier } from "../services/tierService";
+import { isFirstOrder, awardOrderBonus } from "../services/referral.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { payload, shop, topic, admin } = await authenticate.webhook(request);
@@ -47,74 +48,73 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(null, { status: 200 });
   }
 
-  // ── COD check: is the order already fulfilled at payment time? ────────────
+  // ── Check if this is referee's first order (before creating tx) ───────────
+  const firstOrder = await isFirstOrder(shop, customer.id);
+
+  // ── COD check ─────────────────────────────────────────────────────────────
   const isCOD = order.fulfillment_status === "fulfilled";
 
   if (isCOD) {
-    // Activate immediately — no pending state needed
     await db.$transaction([
       db.loyaltyCustomer.update({
         where: { id: customer.id },
-        data: {
-          lifetimePoints: { increment: points },
-          points:         { increment: points },
-        },
+        data: { lifetimePoints: { increment: points }, points: { increment: points } },
       }),
       db.pointTransaction.create({
         data: {
-          shop,
-          customerId: customer.id,
-          type:       "earn",
-          points,
-          status:     "active",
-          orderId,
-          orderName,
+          shop, customerId: customer.id, type: "earn", points, status: "active",
+          orderId, orderName,
           note: `Order ${orderName} — ${points} pts (COD, activated immediately)`,
         },
       }),
     ]);
 
-    console.log(`[orders-paid] COD order ${orderName} — activated ${points} pts immediately for ${shopifyCustomerId}`);
-
-    // Evaluate tier since lifetimePoints changed
     const refreshed = await db.loyaltyCustomer.findUnique({ where: { id: customer.id } });
     if (refreshed) {
-      await evaluateAndUpdateTier(
-        {
-          id:                refreshed.id,
-          shopifyCustomerId: refreshed.shopifyCustomerId,
-          shop:              refreshed.shop,
-          lifetimePoints:    refreshed.lifetimePoints,
-          tier:              refreshed.tier,
-        },
-        admin,
-      );
+      await evaluateAndUpdateTier({ id: refreshed.id, shopifyCustomerId: refreshed.shopifyCustomerId,
+        shop: refreshed.shop, lifetimePoints: refreshed.lifetimePoints, tier: refreshed.tier }, admin);
     }
 
-    return new Response(null, { status: 200 });
+    console.log(`[orders-paid] COD — activated ${points} pts for ${shopifyCustomerId}`);
+  } else {
+    await db.$transaction([
+      db.loyaltyCustomer.update({
+        where: { id: customer.id },
+        data: { lifetimePoints: { increment: points } },
+      }),
+      db.pointTransaction.create({
+        data: {
+          shop, customerId: customer.id, type: "earn", points, status: "pending",
+          orderId, orderName,
+          note: `Order ${orderName} — ${points} pts pending fulfilment`,
+        },
+      }),
+    ]);
+
+    console.log(`[orders-paid] Awarded ${points} pending pts to ${shopifyCustomerId} for order ${orderName}`);
   }
 
-  // ── Normal flow: create pending transaction ───────────────────────────────
-  await db.$transaction([
-    db.loyaltyCustomer.update({
-      where: { id: customer.id },
-      data:  { lifetimePoints: { increment: points } },
-    }),
-    db.pointTransaction.create({
-      data: {
-        shop,
-        customerId: customer.id,
-        type:       "earn",
-        points,
-        status:     "pending",
-        orderId,
-        orderName,
-        note: `Order ${orderName} — ${points} pts pending fulfilment`,
-      },
-    }),
-  ]);
+  // ── Referral order bonus (first order only) ───────────────────────────────
+  if (firstOrder) {
+    try {
+      const referral = await db.referralRelationship.findUnique({
+        where: { refereeId: customer.id },
+      });
 
-  console.log(`[orders-paid] Awarded ${points} pending pts to ${shopifyCustomerId} for order ${orderName}`);
+      if (referral && !referral.orderBonusPaid) {
+        await awardOrderBonus(
+          shop,
+          { id: referral.id, referrerId: referral.referrerId, refereeId: referral.refereeId },
+          points,
+          settings.referralReferrerPct,
+          settings.referralRefereePct,
+        );
+        console.log(`[orders-paid] Referral order bonus awarded for referral ${referral.id}`);
+      }
+    } catch (refErr) {
+      console.error("[orders-paid] Referral bonus error (non-fatal):", refErr);
+    }
+  }
 
   return new Response(null, { status: 200 });
 };
